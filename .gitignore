@@ -1,0 +1,14 @@
+.dub/
+.dub-home/
+dub.selections.json
+*.obj
+*.o
+*.lib
+*.a
+*.exe
+*.pdb
+*.dll
+*.so
+*.dylib
+lumars2-test-*
+docs/
