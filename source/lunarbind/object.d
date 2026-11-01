@@ -19,6 +19,7 @@ import lunarbind.conv;
 import lunarbind.function_;
 
 import core.memory : GC;
+import core.sync.mutex : Mutex;
 import std.string : toStringz;
 import std.traits : fullyQualifiedName, Parameters, ReturnType, isIntegral,
                     isFloatingPoint, isSomeString, Unqual;
@@ -140,21 +141,106 @@ private template metaName(T)
     enum string metaName = "lunarbind.class." ~ fullyQualifiedName!T;
 }
 
+// The same D object can be exposed in several Lua states (and as several
+// class views). The D GC root set is process-global and not reference-counted,
+// so keep one count per object and only add/remove the actual GC root when the
+// first/last userdata disappears.
+private __gshared size_t[void*] objectRootCounts;
+private shared Mutex objectRootLock;
+
+shared static this()
+{
+    objectRootLock = new shared Mutex;
+}
+
+private void addObjectRoot(void* p) nothrow
+{
+    if (p is null)
+        return;
+    objectRootLock.lock_nothrow();
+    scope(exit) objectRootLock.unlock_nothrow();
+
+    auto count = p in objectRootCounts;
+    if (count is null)
+    {
+        objectRootCounts[p] = 1;
+        GC.addRoot(p);
+    }
+    else
+        ++*count;
+}
+
+private void removeObjectRoot(void* p) nothrow
+{
+    if (p is null)
+        return;
+    objectRootLock.lock_nothrow();
+    scope(exit) objectRootLock.unlock_nothrow();
+
+    auto count = p in objectRootCounts;
+    if (count is null)
+        return;
+    if (--*count == 0)
+    {
+        objectRootCounts.remove(p);
+        GC.removeRoot(p);
+    }
+}
+
+version (unittest)
+{
+    /// Test hook: number of live Lua userdata currently rooting `obj`.
+    package size_t objectRootCountForTest(void* p) nothrow
+    {
+        if (p is null)
+            return 0;
+        objectRootLock.lock_nothrow();
+        scope(exit) objectRootLock.unlock_nothrow();
+        auto count = p in objectRootCounts;
+        return count is null ? 0 : *count;
+    }
+}
+
 private extern(C) int classGc(T)(lua_State* L) nothrow
 {
     auto p = cast(T*) lua_touserdata(L, 1);
     if (p !is null && *p !is null)
     {
-        GC.removeRoot(cast(void*) *p);
+        removeObjectRoot(cast(void*) *p);
         *p = null;
     }
     return 0;
 }
 
+// Every class metatable owns a weak-valued table mapping the boxed D object
+// pointer to its userdata. While the userdata is reachable from Lua, pushing
+// the same D object reuses it; when Lua collects it, the weak entry disappears
+// and the next push creates a fresh userdata.
+private void ensureIdentityTable(lua_State* L, int metaIdx)
+{
+    metaIdx = raw.absIndex(L, metaIdx);
+    lua_getfield(L, metaIdx, "__lunarbind_identity");
+    if (lua_type(L, -1) == LUA_TTABLE)
+        return;
+
+    raw.pop(L, 1);
+    lua_createtable(L, 0, 0);
+    lua_createtable(L, 0, 1);
+    lua_pushlstring(L, "__mode".ptr, "__mode".length);
+    lua_pushlstring(L, "v".ptr, 1);
+    lua_rawset(L, -3);
+    lua_setmetatable(L, -2);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, metaIdx, "__lunarbind_identity");
+    // The identity table is left on top of the stack.
+}
+
 private extern(C) int classEq(T)(lua_State* L) nothrow
 {
-    // Compare the boxed D references, not the userdata addresses: pushing the
-    // same D object twice creates two userdata that must still compare equal.
+    // Compare the boxed D references, not the userdata addresses. Repeated
+    // pushes normally reuse one userdata, but different class views (or a
+    // fresh userdata created after the previous one was collected) must still
+    // compare equal.
     auto a = cast(T**) lua_touserdata(L, 1);
     auto b = cast(T**) lua_touserdata(L, 2);
     lua_pushboolean(L, a !is null && b !is null && *a is *b ? 1 : 0);
@@ -294,6 +380,10 @@ struct LuaClass(T)
     if (is(T == class))
 {
     /// Push `obj` as a full userdata. Null becomes Lua nil.
+    ///
+    /// Pushing the same D object again reuses the existing userdata while it is
+    /// still reachable from Lua, preserving object identity and avoiding
+    /// duplicate GC roots.
     static void push(LuaState state, T obj)
     {
         if (obj is null)
@@ -302,12 +392,40 @@ struct LuaClass(T)
             return;
         }
 
-        auto p = cast(T*) raw.newUserdata(state.handle, (void*).sizeof);
-        *p = obj;
-        GC.addRoot(cast(void*) obj);
+        auto L = state.handle;
+        ensureMetatable(state);              // class metatable
+        ensureIdentityTable(L, -1);          // class metatable, identity table
+        auto metaIdx = raw.absIndex(L, -2);
 
-        ensureMetatable(state);
-        lua_setmetatable(state.handle, -2);
+        lua_pushlightuserdata(L, cast(void*) obj);
+        lua_rawget(L, -2);                   // class metatable, identity, value
+        if (lua_type(L, -1) == LUA_TUSERDATA)
+        {
+            // A userdata whose __gc already ran has a null boxed reference and
+            // must not be handed out again (it may still be in the weak table
+            // while its finalizer runs).
+            auto existing = cast(T**) lua_touserdata(L, -1);
+            if (existing !is null && *existing !is null)
+            {
+                raw.remove(L, -3);           // identity, userdata
+                raw.remove(L, -2);           // userdata
+                return;
+            }
+        }
+        raw.pop(L, 1);                       // class metatable, identity
+
+        auto p = cast(T*) raw.newUserdata(L, (void*).sizeof);
+        *p = obj;
+        addObjectRoot(cast(void*) obj);
+
+        lua_pushvalue(L, metaIdx);           // class metatable, identity, userdata, metatable
+        lua_setmetatable(L, -2);             // class metatable, identity, userdata
+
+        lua_pushlightuserdata(L, cast(void*) obj);
+        lua_pushvalue(L, -2);                // class metatable, identity, userdata, key, userdata
+        lua_rawset(L, -4);                   // class metatable, identity, userdata
+        raw.remove(L, -3);                   // identity, userdata
+        raw.remove(L, -2);                   // userdata
     }
 
     /// Read a D object from a Lua userdata at `idx`.
@@ -374,6 +492,11 @@ struct LuaClass(T)
             lua_setfield(state.handle, -2, "__newindex");
             pushCFunction(state.handle, &classEq!T);
             lua_setfield(state.handle, -2, "__eq");
+
+            // Attach the identity table eagerly so normal pushes only pay for
+            // one lookup. ensureIdentityTable leaves it on the stack.
+            ensureIdentityTable(state.handle, -1);
+            raw.pop(state.handle, 1);
         }
         // luaL_newmetatable leaves the metatable on the stack.
     }

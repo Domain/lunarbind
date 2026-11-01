@@ -120,8 +120,11 @@ unittest
     auto other = g.get!Player("otherPlayer");
     assert(other is player);
 
-    // two userdata boxing the same D object must compare equal in Lua
+    // Pushing the same D object again reuses the existing userdata, so the two
+    // globals are rawequal (not merely __eq-equal).
     L.setGlobal("player2", player);
+    auto sameUserdata = L.eval("return rawequal(player, player2)")[0];
+    assert(sameUserdata.kind == LuaType.boolean && sameUserdata.booleanValue);
     auto equal = L.eval("return player == player2")[0];
     assert(equal.kind == LuaType.boolean && equal.booleanValue);
 
@@ -168,4 +171,44 @@ unittest
     catch (LuaStateException)
         crossStateRejected = true;
     assert(crossStateRejected);
+
+    // Roots are reference-counted across states: closing/dropping one state's
+    // userdata must not unroot an object still visible in another state.
+    {
+        auto rooted = new Player(7, "rooted");
+        auto s1 = LuaState.open();
+        auto s2 = LuaState.open();
+
+        LuaClass!Player.setGlobal(s1, "rooted", rooted);
+        LuaClass!Player.setGlobal(s2, "rooted", rooted);
+        assert(objectRootCountForTest(cast(void*) rooted) == 2);
+
+        // Re-pushing in the same state reuses the userdata and adds no root.
+        LuaClass!Player.push(s1, rooted);
+        LuaClass!Player.push(s1, rooted);
+        assert(lua_rawequal(s1.handle, -1, -2) != 0);
+        s1.pop(2);
+        assert(objectRootCountForTest(cast(void*) rooted) == 2);
+
+        // Two full collections also cover versions that run finalizers in a
+        // separate cycle.
+        s1.doString("rooted = nil; collectgarbage('collect'); collectgarbage('collect')");
+        assert(objectRootCountForTest(cast(void*) rooted) == 1);
+        s2.doString("rooted = nil; collectgarbage('collect'); collectgarbage('collect')");
+        assert(objectRootCountForTest(cast(void*) rooted) == 0);
+
+        s1.close();
+        s2.close();
+    }
+
+    // Closing a state finalizes its userdata and releases their roots.
+    {
+        auto closedObj = new Player(8, "closed");
+        {
+            auto s = LuaState.open();
+            LuaClass!Player.setGlobal(s, "obj", closedObj);
+            assert(objectRootCountForTest(cast(void*) closedObj) == 1);
+        }
+        assert(objectRootCountForTest(cast(void*) closedObj) == 0);
+    }
 }

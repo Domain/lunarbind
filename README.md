@@ -140,6 +140,13 @@ created inside a callback stay valid after the callback returns. The underlying
 reference into a different Lua state throws `LuaStateException` instead of
 silently reading the wrong registry.
 
+D class userdata are rooted in the D GC. Because the GC root set is process-wide
+and not reference-counted, `lunarbind` keeps its own per-object count: an object
+exposed in two Lua states (or through two class views) is unrooted only when the
+last userdata is finalized. Each class metatable also owns a weak-valued
+identity table, so pushing the same D object again reuses the existing userdata
+while Lua still has it.
+
 Goals and non-goals:
 
 - **Goal:** D calling Lua looks like D; Lua calling D looks like Lua; D objects
@@ -154,18 +161,20 @@ Goals and non-goals:
 
 Implemented: D class → full userdata; `__index`/`__newindex` for public fields;
 public single-overload methods (`obj:method(...)`); `__gc`; `__eq`; D → Lua and
-Lua → D identity.
+Lua → D identity; weak-value identity tables so repeated pushes reuse the same
+userdata; reference-counted GC roots across states and class views.
 
 Not yet: constructors from Lua, properties, inheritance, overload resolution,
-operator metamethods, struct reference semantics, `__tostring`, weak tables.
-These are deliberately listed on the roadmap rather than half-implemented.
+operator metamethods, struct reference semantics, `__tostring`, general weak
+tables. These are deliberately listed on the roadmap rather than
+half-implemented.
 
 ## Roadmap
 
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
 2. **Object model**: constructors, properties, inheritance, overloads,
-   `__tostring`/`__len`, structs by reference, weak identity table.
+   `__tostring`/`__len`, structs by reference, general weak tables.
 3. **Functions**: default args, varargs, `LuaState` injection, tuple returns,
    user-defined codecs (`LuaCodec`), coroutine wrappers.
 4. **Tooling**: `@LuaExport`/module builder as a single source for registration
