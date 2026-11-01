@@ -120,6 +120,11 @@ unittest
     auto other = g.get!Player("otherPlayer");
     assert(other is player);
 
+    // two userdata boxing the same D object must compare equal in Lua
+    L.setGlobal("player2", player);
+    auto equal = L.eval("return player == player2")[0];
+    assert(equal.kind == LuaType.boolean && equal.booleanValue);
+
     auto playerValue = L.getGlobal!LuaValue("player");
     playerValue.push(L);
     assert(LuaClass!Player.isInstance(L, -1));

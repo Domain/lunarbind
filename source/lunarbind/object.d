@@ -153,9 +153,11 @@ private extern(C) int classGc(T)(lua_State* L) nothrow
 
 private extern(C) int classEq(T)(lua_State* L) nothrow
 {
-    auto a = lua_touserdata(L, 1);
-    auto b = lua_touserdata(L, 2);
-    lua_pushboolean(L, a is b ? 1 : 0);
+    // Compare the boxed D references, not the userdata addresses: pushing the
+    // same D object twice creates two userdata that must still compare equal.
+    auto a = cast(T**) lua_touserdata(L, 1);
+    auto b = cast(T**) lua_touserdata(L, 2);
+    lua_pushboolean(L, a !is null && b !is null && *a is *b ? 1 : 0);
     return 1;
 }
 
