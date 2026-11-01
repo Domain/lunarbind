@@ -1,12 +1,12 @@
 /// Registry-backed Lua table handle.
-module lumars2.table;
+module lunarbind.table;
 
-import lumars2.raw;
-static import raw = lumars2.raw;
-import lumars2.state;
-import lumars2.types;
-import lumars2.value;
-import lumars2.conv;
+import lunarbind.raw;
+static import raw = lunarbind.raw;
+import lunarbind.state;
+import lunarbind.types;
+import lunarbind.value;
+import lunarbind.conv;
 
 struct LuaTable
 {
@@ -93,6 +93,7 @@ struct LuaTable
         return 0;
     }
 }
+
 
 
 

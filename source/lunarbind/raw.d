@@ -7,7 +7,7 @@
 ///
 /// Select exactly one version via a DUB configuration (or `-version=`):
 /// `LUA_51`, `LUA_52`, `LUA_53`, `LUA_54`; add `LUAJIT` for LuaJIT.
-module lumars2.raw;
+module lunarbind.raw;
 
 version (LUA_54)
     enum LUA_VERSION_NUM = 504;
@@ -18,7 +18,7 @@ else version (LUA_52)
 else version (LUA_51)
     enum LUA_VERSION_NUM = 501;
 else
-    static assert(0, "lumars2: select a Lua version (LUA_51, LUA_52, LUA_53 or LUA_54)");
+    static assert(0, "lunarbind: select a Lua version (LUA_51, LUA_52, LUA_53 or LUA_54)");
 
 version (LUAJIT)
     enum isLuaJIT = true;
@@ -81,7 +81,7 @@ enum int LUA_OPLT = 1;
 enum int LUA_OPLE = 2;
 
 // GC operations (the subset we expose; names differ across versions, values
-// 0..5 are stable for the operations used by lumars2).
+// 0..5 are stable for the operations used by lunarbind).
 enum int LUA_GCSTOP = 0;
 enum int LUA_GCRESTART = 1;
 enum int LUA_GCCOLLECT = 2;
@@ -262,6 +262,23 @@ else
     }
 
     void pop(lua_State* L, int n) { lua_settop(L, -n - 1); }
+
+    // In Lua 5.1 these are macros, not exported symbols.
+    int getGlobal(lua_State* L, const(char)* name)
+    {
+        static if (LUA_VERSION_NUM == 501)
+            return lua_getfield(L, LUA_GLOBALSINDEX, name);
+        else
+            return lua_getglobal(L, name);
+    }
+
+    void setGlobal(lua_State* L, const(char)* name)
+    {
+        static if (LUA_VERSION_NUM == 501)
+            lua_setfield(L, LUA_GLOBALSINDEX, name);
+        else
+            lua_setglobal(L, name);
+    }
 
     void pushCFunction(lua_State* L, lua_CFunction fn) { lua_pushcclosure(L, fn, 0); }
 
@@ -466,4 +483,5 @@ else
         setFuncs(L, regs);
     }
 }
+
 

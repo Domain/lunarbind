@@ -1,18 +1,19 @@
-# lumars2
+# lunarbind
 
 **A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.4.
 
 > Status: **early scaffold (v0.1)**. The core API, conversion layer, callbacks and
 > a first userdata/object model are implemented and compile on DMD-frontend
-> (LDC 1.43) against Lua 5.1–5.4 API profiles. Runtime tests have not yet been
-> executed in the bootstrap environment because no Lua development library was
-> available; CI is set up to run them. The public API is not frozen yet.
+> (LDC 1.43) against Lua 5.1–5.4 API profiles. The runtime smoke tests pass
+> against LuaJIT 2.1.0-beta3 on Windows (Lua 5.2–5.4 runtime runs are left to CI,
+> which installs the corresponding system libraries). The public API is not
+> frozen yet.
 
 ## Why another binding?
 
 The upstream [lumars](https://github.com/Domain/lumars) is a useful, lightweight
 embedding wrapper, but its value-semantic `push`/`get` model cannot provide
-transparent D-class ↔ Lua-object interoperation. lumars2 is a clean base for
+transparent D-class ↔ Lua-object interoperation. lunarbind is a clean base for
 that goal:
 
 - explicit, shared `LuaState` lifetime; no `LuaState*` dangling from refs;
@@ -30,7 +31,7 @@ and is credited in [LICENSE](LICENSE).
 ## Layout
 
 ```
-source/lumars2/
+source/lunarbind/
   raw.d          version-aware Lua C API declarations + compat helpers
   types.d        LuaStatus, LuaType, exceptions
   state.d        StateCore, LuaState, StackGuard, LuaRef, traceback/error helpers
@@ -45,7 +46,7 @@ source/lumars2/
 ## Quick start
 
 ```d
-import lumars2;
+import lunarbind;
 
 class Player
 {
@@ -162,3 +163,4 @@ These are deliberately listed on the roadmap rather than half-implemented.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+

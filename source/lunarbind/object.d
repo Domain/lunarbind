@@ -8,15 +8,15 @@
 /// - Public single-overload methods are callable as `obj:method(...)`.
 /// - Inheritance, properties, operator overloads, constructors and overload
 ///   resolution are future work.
-module lumars2.object;
+module lunarbind.object;
 
-import lumars2.raw;
-static import raw = lumars2.raw;
-import lumars2.state;
-import lumars2.types;
-import lumars2.value;
-import lumars2.conv;
-import lumars2.function_;
+import lunarbind.raw;
+static import raw = lunarbind.raw;
+import lunarbind.state;
+import lunarbind.types;
+import lunarbind.value;
+import lunarbind.conv;
+import lunarbind.function_;
 
 import core.memory : GC;
 import std.string : toStringz;
@@ -137,7 +137,7 @@ private template fieldBindable(T, string member)
 
 private template metaName(T)
 {
-    enum string metaName = "lumars2.class." ~ fullyQualifiedName!T;
+    enum string metaName = "lunarbind.class." ~ fullyQualifiedName!T;
 }
 
 private extern(C) int classGc(T)(lua_State* L) nothrow
@@ -319,13 +319,13 @@ struct LuaClass(T)
     static void setGlobal(LuaState state, string name, T obj)
     {
         push(state, obj);
-        lua_setglobal(state.handle, toStringz(name));
+        raw.setGlobal(state.handle, toStringz(name));
     }
 
     /// Read a global variable as a D object (null if nil).
     static T getGlobal(LuaState state, string name)
     {
-        lua_getglobal(state.handle, toStringz(name));
+        raw.getGlobal(state.handle, toStringz(name));
         scope(exit) raw.pop(state.handle, 1);
         if (lua_type(state.handle, -1) == LUA_TNIL)
             return null;
@@ -372,6 +372,8 @@ struct LuaClass(T)
         // luaL_newmetatable leaves the metatable on the stack.
     }
 }
+
+
 
 
 

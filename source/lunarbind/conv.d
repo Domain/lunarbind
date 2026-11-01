@@ -3,17 +3,17 @@
 /// The design deliberately uses free-function templates instead of baking a
 /// giant `static if` chain into `LuaState`.  Future versions will also allow
 /// runtime-registered codecs for user types; object binding lives in
-/// `lumars2.object`.
-module lumars2.conv;
+/// `lunarbind.object`.
+module lunarbind.conv;
 
-import lumars2.raw;
-static import raw = lumars2.raw;
-import lumars2.state;
-import lumars2.types;
-import lumars2.value;
+import lunarbind.raw;
+static import raw = lunarbind.raw;
+import lunarbind.state;
+import lunarbind.types;
+import lunarbind.value;
 
-import lumars2.table : LuaTable;
-import lumars2.function_ : LuaFunction;
+import lunarbind.table : LuaTable;
+import lunarbind.function_ : LuaFunction;
 
 import std.traits : isIntegral, isFloatingPoint, isDynamicArray,
                     isAssociativeArray, isSomeString, KeyType, ValueType, isPointer, isInstanceOf;
@@ -102,7 +102,7 @@ void pushTo(T)(LuaState L, auto ref T value)
     }
     else
     {
-        static assert(0, "lumars2: no pushTo implementation for type " ~ T.stringof);
+        static assert(0, "lunarbind: no pushTo implementation for type " ~ T.stringof);
     }
 }
 
@@ -232,9 +232,10 @@ T popFrom(T)(LuaState L, int idx)
     }
     else
     {
-        static assert(0, "lumars2: no popFrom implementation for type " ~ T.stringof);
+        static assert(0, "lunarbind: no popFrom implementation for type " ~ T.stringof);
     }
 }
+
 
 
 

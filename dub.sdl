@@ -1,71 +1,42 @@
-name "lumars2"
+name "lunarbind"
 description "A transparent, layered D <-> Lua binding (LuaJIT and Lua 5.1-5.4)."
-authors "lumars2 contributors"
-copyright "Copyright © 2026 lumars2 contributors"
+authors "lunarbind contributors"
+copyright "Copyright © 2026 lunarbind contributors"
 license "MIT"
 targetType "library"
 
 configuration "lua51" {
     versions "LUA_51"
-    platform "linux" {
-        libs "lua5.1" "m" "dl"
-    }
-    platform "windows" {
-        libs "lua51"
-    }
-    platform "osx" {
-        libs "lua5.1"
-    }
+    libs "lua51" platform="windows"
+    libs "lua5.1" "m" "dl" platform="linux"
+    libs "lua5.1" platform="osx"
 }
 
 configuration "lua52" {
     versions "LUA_52"
-    platform "linux" {
-        libs "lua5.2" "m" "dl"
-    }
-    platform "windows" {
-        libs "lua52"
-    }
-    platform "osx" {
-        libs "lua5.2"
-    }
+    libs "lua52" platform="windows"
+    libs "lua5.2" "m" "dl" platform="linux"
+    libs "lua5.2" platform="osx"
 }
 
 configuration "lua53" {
     versions "LUA_53"
-    platform "linux" {
-        libs "lua5.3" "m" "dl"
-    }
-    platform "windows" {
-        libs "lua53"
-    }
-    platform "osx" {
-        libs "lua5.3"
-    }
+    libs "lua53" platform="windows"
+    libs "lua5.3" "m" "dl" platform="linux"
+    libs "lua5.3" platform="osx"
 }
 
 configuration "lua54" {
     versions "LUA_54"
-    platform "linux" {
-        libs "lua5.4" "m" "dl"
-    }
-    platform "windows" {
-        libs "lua54"
-    }
-    platform "osx" {
-        libs "lua5.4"
-    }
+    libs "lua54" platform="windows"
+    libs "lua5.4" "m" "dl" platform="linux"
+    libs "lua5.4" platform="osx"
 }
 
 configuration "luajit" {
     versions "LUA_51" "LUAJIT"
-    platform "linux" {
-        libs "luajit-5.1" "m" "dl"
-    }
-    platform "windows" {
-        libs "lua51"
-    }
-    platform "osx" {
-        libs "luajit-5.1"
-    }
+    libs "lua51" platform="windows"
+    libs "luajit-5.1" "m" "dl" platform="linux"
+    libs "luajit-5.1" platform="osx"
 }
+

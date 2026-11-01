@@ -1,5 +1,5 @@
 /// Public status/type/error types, independent of the C bindings.
-module lumars2.types;
+module lunarbind.types;
 
 /// Lua status codes (LUA_OK / LUA_YIELD / LUA_ERR*).
 enum LuaStatus : int
@@ -28,7 +28,7 @@ enum LuaType : int
     integer       = 9, // synthetic: a Lua 5.3+ integer stored as LUA_TNUMBER
 }
 
-/// Base class for all errors raised by lumars2.
+/// Base class for all errors raised by lunarbind.
 class LuaException : Exception
 {
     LuaStatus status;
@@ -78,4 +78,5 @@ class LuaStateException : LuaException
         super(msg, LuaStatus.errRun, null, file, line, next);
     }
 }
+
 

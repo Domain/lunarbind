@@ -1,12 +1,12 @@
 /// Lua function handles and D callback binding.
-module lumars2.function_;
+module lunarbind.function_;
 
-import lumars2.raw;
-static import raw = lumars2.raw;
-import lumars2.state;
-import lumars2.types;
-import lumars2.value;
-import lumars2.conv;
+import lunarbind.raw;
+static import raw = lunarbind.raw;
+import lunarbind.state;
+import lunarbind.types;
+import lunarbind.value;
+import lunarbind.conv;
 
 import core.memory : GC;
 import std.meta : AliasSeq;
@@ -203,7 +203,7 @@ private final class CallbackBox(Dg)
 
 private void ensureCallbackMetatable(LuaState state)
 {
-    if (luaL_newmetatable(state.handle, "__lumars2_callback") != 0)
+    if (luaL_newmetatable(state.handle, "__lunarbind_callback") != 0)
     {
         pushCFunction(state.handle, &callbackGc);
         lua_setfield(state.handle, -2, "__gc");
@@ -264,14 +264,14 @@ void pushFunction(alias Func)(LuaState state)
 void registerFunction(alias Func)(LuaState state, string name)
 {
     pushFunction!Func(state);
-    lua_setglobal(state.handle, toStringz(name));
+    raw.setGlobal(state.handle, toStringz(name));
 }
 
 /// Register a runtime delegate as a global.
 void registerDelegate(Dg)(LuaState state, string name, Dg dg)
 {
     pushDelegate(state, dg);
-    lua_setglobal(state.handle, toStringz(name));
+    raw.setGlobal(state.handle, toStringz(name));
 }
 
 /// Create a library table and register functions from (name, function) pairs.
@@ -284,8 +284,10 @@ void registerLibrary(Args...)(LuaState state, string libName)
         pushFunction!(Args[i * 2 + 1])(state);
         lua_setfield(state.handle, -2, toStringz(Args[i * 2]));
     }}
-    lua_setglobal(state.handle, toStringz(libName));
+    raw.setGlobal(state.handle, toStringz(libName));
 }
+
+
 
 
 

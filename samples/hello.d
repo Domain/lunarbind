@@ -1,6 +1,6 @@
 module hello;
 
-import lumars2;
+import lunarbind;
 import std.stdio : writeln;
 
 class Counter
@@ -45,3 +45,4 @@ void main()
     `);
     assert(counter.value == 15);
 }
+

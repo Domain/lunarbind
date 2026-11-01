@@ -1,9 +1,9 @@
 /// Dynamic Lua value used at the untyped edges of the API.
-module lumars2.value;
+module lunarbind.value;
 
-import lumars2.raw;
-import lumars2.state;
-import lumars2.types;
+import lunarbind.raw;
+import lunarbind.state;
+import lunarbind.types;
 
 struct LuaValue
 {
@@ -117,5 +117,6 @@ struct LuaValue
         }
     }
 }
+
 
 

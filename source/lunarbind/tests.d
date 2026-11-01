@@ -1,8 +1,8 @@
 /// Compile-time + runtime smoke test.  The runtime checks require a Lua
 /// library; `dub test --config=lua54` runs them in CI.
-module lumars2.tests;
+module lunarbind.tests;
 
-import lumars2;
+import lunarbind;
 
 class Player
 {
@@ -46,8 +46,8 @@ unittest
 
     // tables
     auto g = L.globals();
-    g["name"] = "lumars2";
-    assert(g.get!string("name") == "lumars2");
+    g["name"] = "lunarbind";
+    assert(g.get!string("name") == "lunarbind");
     bool found;
     assert(g.tryGet!int("missing", found) == 0 && !found);
 
@@ -67,8 +67,8 @@ unittest
     auto f = L.loadString("return 40 + 2");
     assert(f.call!int() == 42);
 
-    L.loadString("function mul(a, b) return a * b end").push();
-    lua_setglobal(L.handle, "mul");
+    auto mulValue = L.loadString("return function(a, b) return a * b end").call!LuaValue();
+    L.setGlobal("mul", mulValue);
     auto mul = L.getGlobal!LuaFunction("mul");
     assert(mul.call!int(6, 7) == 42);
 
@@ -102,14 +102,15 @@ unittest
     auto result = L.eval("
         player.hp = player.hp - 10
         player:damage(5)
-        return player.health(), player.name
+        return player:health(), player.name
     ");
     assert(asInt(result[0]) == 85);
     assert(result[1].stringValue == "bob");
     assert(player.hp == 85);
 
     auto same = LuaClass!Player.getGlobal(L, "player");
-    lua_getglobal(L.handle, "player");
+    auto playerValue = L.getGlobal!LuaValue("player");
+    playerValue.push(L);
     assert(LuaClass!Player.isInstance(L, -1));
     L.pop(1);
 
@@ -133,6 +134,9 @@ unittest
     auto roundTrip = L.getGlobal!(int[string])("aa");
     assert(roundTrip["a"] == 1 && roundTrip["b"] == 2);
 }
+
+
+
 
 
 

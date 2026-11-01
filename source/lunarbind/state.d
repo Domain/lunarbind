@@ -1,10 +1,10 @@
 /// Lua state handle, registry references, stack guards and error handling.
-module lumars2.state;
+module lunarbind.state;
 
-import lumars2.raw;
-static import raw = lumars2.raw;
-import lumars2.types;
-import lumars2.value : LuaValue;
+import lunarbind.raw;
+static import raw = lunarbind.raw;
+import lunarbind.types;
+import lunarbind.value : LuaValue;
 
 import std.string : toStringz;
 import std.typecons : RefCounted;
@@ -189,32 +189,32 @@ struct LuaState
         return lua_typename(handle, lua_type(handle, idx))[0 .. strlen(lua_typename(handle, lua_type(handle, idx)))].idup;
     }
 
-    // -- generic conversion (implemented in lumars2.conv) --------------------
+    // -- generic conversion (implemented in lunarbind.conv) --------------------
 
     void push(T)(T value)
     {
-        import lumars2.conv : pushTo;
+        import lunarbind.conv : pushTo;
         pushTo(this, value);
     }
 
     T get(T)(int idx)
     {
-        import lumars2.conv : popFrom;
+        import lunarbind.conv : popFrom;
         return popFrom!T(this, idx);
     }
 
     void setGlobal(T)(string name, T value)
     {
-        import lumars2.conv : pushTo;
+        import lunarbind.conv : pushTo;
         pushTo(this, value);
-        lua_setglobal(handle, toStringz(name));
+        raw.setGlobal(handle, toStringz(name));
     }
 
     T getGlobal(T)(string name)
     {
-        import lumars2.conv : popFrom;
+        import lunarbind.conv : popFrom;
         StackGuard guard = StackGuard(this);
-        lua_getglobal(handle, toStringz(name));
+        raw.getGlobal(handle, toStringz(name));
         return popFrom!T(this, -1);
     }
 
@@ -222,7 +222,7 @@ struct LuaState
 
     auto globals()
     {
-        import lumars2.table : LuaTable;
+        import lunarbind.table : LuaTable;
         pushGlobalTable(handle);
         auto ref_ = LuaRef.make(this, -1);
         pop(1);
@@ -232,7 +232,7 @@ struct LuaState
     /// Load a chunk without running it.
     auto loadString(string code, string name = "<string>")
     {
-        import lumars2.function_ : LuaFunction;
+        import lunarbind.function_ : LuaFunction;
         StackGuard guard = StackGuard(this);
         auto status = raw.loadString(handle, code, toStringz(name));
         if (status != LUA_OK)
@@ -246,7 +246,7 @@ struct LuaState
     /// Evaluate a chunk and return all its results. Throws on Lua errors.
     LuaValue[] eval(string code, string name = "<string>")
     {
-        import lumars2.value : LuaValue;
+        import lunarbind.value : LuaValue;
         StackGuard guard = StackGuard(this);
 
         const base = top();
@@ -318,7 +318,7 @@ struct LuaState
             auto p = lua_tolstring(handle, absIdx, &len);
             if (p !is null)
                 return p[0 .. len].idup;
-            lua_getglobal(handle, "tostring");
+            raw.getGlobal(handle, "tostring");
             if (lua_type(handle, -1) == LUA_TFUNCTION)
             {
                 lua_pushvalue(handle, absIdx);
@@ -368,6 +368,12 @@ private struct RefHolder
     LuaState state;
     int ref_;
 
+    this(LuaState state, int ref_)
+    {
+        this.state = state;
+        this.ref_ = ref_;
+    }
+
     ~this() nothrow
     {
         auto L = state.handle;
@@ -382,12 +388,7 @@ struct LuaRef
 
     this(LuaState state, int ref_)
     {
-        _holder = RefCounted!RefHolder(RefHolder(state, ref_));
-    }
-
-    private this(RefHolder holder)
-    {
-        _holder = RefCounted!RefHolder(holder);
+        _holder = RefCounted!RefHolder(state, ref_);
     }
 
     /// Copy the value at `idx` into the registry and return a reference.
@@ -395,13 +396,13 @@ struct LuaRef
     {
         state.pushValue(idx);
         auto ref_ = luaL_ref(state.handle, LUA_REGISTRYINDEX);
-        return LuaRef(RefHolder(state, ref_));
+        return LuaRef(state, ref_);
     }
 
     /// Take ownership of an existing registry reference.
     static LuaRef fromRef(LuaState state, int ref_)
     {
-        return LuaRef(RefHolder(state, ref_));
+        return LuaRef(state, ref_);
     }
 
     bool isNull() const @nogc nothrow
@@ -426,8 +427,8 @@ struct LuaRef
         return _holder.state.typeOf(-1);
     }
 
-    auto asTable() { import lumars2.table : LuaTable; return LuaTable(this); }
-    auto asFunction() { import lumars2.function_ : LuaFunction; return LuaFunction(this); }
+    auto asTable() { import lunarbind.table : LuaTable; return LuaTable(this); }
+    auto asFunction() { import lunarbind.function_ : LuaFunction; return LuaFunction(this); }
 
     LuaValue asValue()
     {
@@ -467,6 +468,8 @@ private size_t strlen(const(char)* s) @nogc nothrow
             n++;
     return n;
 }
+
+
 
 
 

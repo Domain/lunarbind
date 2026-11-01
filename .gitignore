@@ -10,5 +10,6 @@ dub.selections.json
 *.dll
 *.so
 *.dylib
-lumars2-test-*
+lunarbind-test-*
 docs/
+
