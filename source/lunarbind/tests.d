@@ -26,6 +26,52 @@ class Player
     }
 }
 
+class Stats
+{
+    private int _hp;
+
+    this(int hp)
+    {
+        _hp = hp;
+    }
+
+    @property int hp() const
+    {
+        return _hp;
+    }
+
+    @property void hp(int value)
+    {
+        _hp = value;
+    }
+
+    @property int doubled() const
+    {
+        return _hp * 2;
+    }
+}
+
+class Node
+{
+    int value;
+    Node next;
+
+    this(int value)
+    {
+        this.value = value;
+    }
+
+    Node child()
+    {
+        return next;
+    }
+
+    void link(Node other)
+    {
+        next = other;
+    }
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -132,6 +178,32 @@ unittest
     playerValue.push(L);
     assert(LuaClass!Player.isInstance(L, -1));
     L.pop(1);
+
+    // @property getters and setters
+    auto stats = new Stats(10);
+    LuaClass!Stats.setGlobal(L, "stats", stats);
+    auto statsResult = L.eval("
+        stats.hp = stats.hp + 5
+        return stats.hp, stats.doubled
+    ");
+    assert(asInt(statsResult[0]) == 15);
+    assert(asInt(statsResult[1]) == 30);
+    assert(stats.hp == 15);
+
+    // Class-typed fields and method parameters/results flow through LuaClass.
+    auto nodeA = new Node(1);
+    auto nodeB = new Node(2);
+    nodeA.next = nodeB;
+    LuaClass!Node.setGlobal(L, "nodeA", nodeA);
+    LuaClass!Node.setGlobal(L, "nodeB", nodeB);
+    auto nodeResult = L.eval("
+        assert(nodeA.next.value == 2)
+        nodeA:link(nodeB)
+        return nodeA:child().value
+    ");
+    assert(asInt(nodeResult[0]) == 2);
+    L.doString("nodeA.next = nil");
+    assert(nodeA.next is null);
 
     // a wrapper must share the owner's core
     auto wrapped = LuaState.wrap(L.handle);

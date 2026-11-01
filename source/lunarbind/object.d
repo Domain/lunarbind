@@ -16,14 +16,17 @@ import lunarbind.state;
 import lunarbind.types;
 import lunarbind.value;
 import lunarbind.conv;
+import lunarbind.table : LuaTable;
 import lunarbind.function_;
 
 import core.memory : GC;
 import core.sync.mutex : Mutex;
 import std.string : toStringz;
 import std.traits : fullyQualifiedName, Parameters, ReturnType, isIntegral,
-                    isFloatingPoint, isSomeString, Unqual;
-import std.typecons : Tuple;
+                    isFloatingPoint, isSomeString, isDynamicArray,
+                    isAssociativeArray, isInstanceOf, functionAttributes,
+                    FunctionAttribute, Unqual;
+import std.typecons : Tuple, Nullable;
 
 // ---------------------------------------------------------------------------
 // Compile-time member filtering
@@ -74,7 +77,12 @@ private template isBindableType(T)
         || is(T == LuaRef)
         || is(T == LuaTable)
         || is(T == LuaFunction)
-        || is(T == void*);
+        || is(T == LuaString)
+        || is(T == void*)
+        || is(T == class)
+        || isDynamicArray!T
+        || isAssociativeArray!T
+        || isInstanceOf!(Nullable, T);
 }
 
 private template isBindableReturn(T)
@@ -108,6 +116,78 @@ private template allBindable(Params...)
         enum allBindable = true;
     else
         enum allBindable = isBindableType!(Params[0]) && allBindable!(Params[1 .. $]);
+}
+
+// `@property` getters/setters share a member name, so they cannot go through
+// the single-overload method path. Find the first callable getter (zero args,
+// non-void result) and setter (one bindable arg) in the overload set.
+private template isPropertyFunction(alias F)
+{
+    static if (__traits(compiles, functionAttributes!F))
+        enum isPropertyFunction =
+            (functionAttributes!F & FunctionAttribute.property) != 0;
+    else
+        enum isPropertyFunction = false;
+}
+
+private template propertyGetter(T, string member, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, member)))
+    {
+        alias overloads = __traits(getOverloads, T, member);
+        static if (i < overloads.length)
+        {
+            alias F = overloads[i];
+            static if (isPropertyFunction!F
+                       && __traits(compiles, Parameters!F)
+                       && __traits(compiles, ReturnType!F)
+                       && Parameters!F.length == 0
+                       && !is(ReturnType!F == void)
+                       && isBindableReturn!(ReturnType!F))
+                alias propertyGetter = F;
+            else
+                alias propertyGetter = propertyGetter!(T, member, i + 1);
+        }
+        else
+            alias propertyGetter = void;
+    }
+    else
+        alias propertyGetter = void;
+}
+
+private template propertySetter(T, string member, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, member)))
+    {
+        alias overloads = __traits(getOverloads, T, member);
+        static if (i < overloads.length)
+        {
+            alias F = overloads[i];
+            static if (isPropertyFunction!F
+                       && __traits(compiles, Parameters!F)
+                       && __traits(compiles, ReturnType!F)
+                       && Parameters!F.length == 1
+                       && is(ReturnType!F == void)
+                       && allBindable!(Parameters!F))
+                alias propertySetter = F;
+            else
+                alias propertySetter = propertySetter!(T, member, i + 1);
+        }
+        else
+            alias propertySetter = void;
+    }
+    else
+        alias propertySetter = void;
+}
+
+private template hasPropertyGetter(T, string member)
+{
+    enum hasPropertyGetter = !is(propertyGetter!(T, member) == void);
+}
+
+private template hasPropertySetter(T, string member)
+{
+    enum hasPropertySetter = !is(propertySetter!(T, member) == void);
 }
 
 private template fieldType(T, string member)
@@ -266,7 +346,15 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
         {{
             static if (isPublicMember!(T, member) && isExposedName!member)
             {
-                static if (fieldBindable!(T, member))
+                static if (hasPropertyGetter!(T, member))
+                {
+                    if (key == member)
+                    {
+                        pushTo(state, __traits(getMember, self, member)());
+                        return 1;
+                    }
+                }
+                else static if (fieldBindable!(T, member))
                 {
                     if (key == member)
                     {
@@ -312,14 +400,28 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
 
         static foreach (member; __traits(allMembers, T))
         {{
-            static if (isPublicMember!(T, member) && isExposedName!member
-                       && fieldBindable!(T, member))
+            static if (isPublicMember!(T, member) && isExposedName!member)
             {
-                if (key == member)
+                static if (hasPropertySetter!(T, member))
                 {
-                    alias FT = Unqual!(fieldType!(T, member));
-                    __traits(getMember, self, member) = popFrom!FT(state, 3);
-                    return 0;
+                    if (key == member)
+                    {
+                        alias Setter = propertySetter!(T, member);
+                        alias SetterParams = Parameters!Setter;
+                        alias PT = Unqual!(SetterParams[0]);
+                        auto value = popFrom!PT(state, 3);
+                        __traits(getMember, self, member)(value);
+                        return 0;
+                    }
+                }
+                else static if (fieldBindable!(T, member))
+                {
+                    if (key == member)
+                    {
+                        alias FT = Unqual!(fieldType!(T, member));
+                        __traits(getMember, self, member) = popFrom!FT(state, 3);
+                        return 0;
+                    }
                 }
             }
         }}

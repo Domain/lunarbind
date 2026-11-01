@@ -160,11 +160,12 @@ Goals and non-goals:
 ### Current object-model scope
 
 Implemented: D class → full userdata; `__index`/`__newindex` for public fields;
-public single-overload methods (`obj:method(...)`); `__gc`; `__eq`; D → Lua and
+public single-overload methods (`obj:method(...)`); `@property` getters/setters;
+class-typed fields and method parameters/results; `__gc`; `__eq`; D → Lua and
 Lua → D identity; weak-value identity tables so repeated pushes reuse the same
 userdata; reference-counted GC roots across states and class views.
 
-Not yet: constructors from Lua, properties, inheritance, overload resolution,
+Not yet: constructors from Lua, inheritance-aware casts, overload resolution,
 operator metamethods, struct reference semantics, `__tostring`, general weak
 tables. These are deliberately listed on the roadmap rather than
 half-implemented.
@@ -173,7 +174,7 @@ half-implemented.
 
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
-2. **Object model**: constructors, properties, inheritance, overloads,
+2. **Object model**: constructors, inheritance-aware casts, overloads,
    `__tostring`/`__len`, structs by reference, general weak tables.
 3. **Functions**: default args, varargs, `LuaState` injection, tuple returns,
    user-defined codecs (`LuaCodec`), coroutine wrappers.
