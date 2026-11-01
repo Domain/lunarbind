@@ -200,11 +200,12 @@ T popFrom(T)(LuaState L, int idx)
             throw new LuaTypeException("expected table, got " ~ L.typeName(idx));
 
         alias E = typeof(T.init[0]);
-        auto len = raw.rawLen(h, idx);
+        auto tableIdx = L.absIndex(idx);
+        auto len = raw.rawLen(h, tableIdx);
         auto result = new E[len];
         foreach (i; 0 .. len)
         {
-            lua_rawgeti(h, idx, cast(lua_Integer)(i + 1));
+            lua_rawgeti(h, tableIdx, cast(lua_Integer)(i + 1));
             scope(exit) L.pop(1);
             result[i] = popFrom!E(L, -1);
         }
@@ -234,6 +235,7 @@ T popFrom(T)(LuaState L, int idx)
         static assert(0, "lumars2: no popFrom implementation for type " ~ T.stringof);
     }
 }
+
 
 
 
