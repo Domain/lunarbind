@@ -34,6 +34,10 @@ int asInt(LuaValue v)
 int add(int a, int b) { return a + b; }
 int sub(int a, int b) { return a - b; }
 
+// Filled from a Lua callback; must stay valid after the callback returns.
+LuaTable capturedTable;
+void captureTable(LuaTable table) { capturedTable = table; }
+
 unittest
 {
     auto L = LuaState.open();
@@ -109,14 +113,31 @@ unittest
     assert(player.hp == 85);
 
     auto same = LuaClass!Player.getGlobal(L, "player");
+    assert(same is player);
+
+    // class values now flow through pushTo/popFrom
+    g["otherPlayer"] = player;
+    auto other = g.get!Player("otherPlayer");
+    assert(other is player);
+
     auto playerValue = L.getGlobal!LuaValue("player");
     playerValue.push(L);
     assert(LuaClass!Player.isInstance(L, -1));
     L.pop(1);
 
+    // a wrapper must share the owner's core
+    auto wrapped = LuaState.wrap(L.handle);
+    assert(wrapped.sharesState(L));
+    assert(wrapped.getGlobal!int("answer") == 42);
+
+    // a reference created inside a callback must outlive the callback
+    registerFunction!captureTable(L, "captureTable");
+    L.doString("captureTable({ value = 7 })");
+    assert(capturedTable.get!int("value") == 7);
+    capturedTable = LuaTable.init;
+
     auto multi = L.loadString("return 1, 2, 3").call!(LuaValue[])();
     assert(multi.length == 3);
-    assert(same is player);
 
     // errors carry a LuaException
     bool caught;
@@ -133,10 +154,13 @@ unittest
     L.setGlobal("aa", aa);
     auto roundTrip = L.getGlobal!(int[string])("aa");
     assert(roundTrip["a"] == 1 && roundTrip["b"] == 2);
+
+    // refs must not leak into another state
+    auto otherState = LuaState.open();
+    bool crossStateRejected;
+    try
+        otherState.push(g);
+    catch (LuaStateException)
+        crossStateRejected = true;
+    assert(crossStateRejected);
 }
-
-
-
-
-
-

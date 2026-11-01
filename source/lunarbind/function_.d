@@ -30,6 +30,7 @@ struct LuaFunction
     LuaState state() { return _ref.state(); }
     LuaRef ref_() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }
+    void pushInto(LuaState target) { _ref.pushInto(target); }
 
     /// Call the function. `T` defaults to `LuaValue`; use `call!int` etc. for
     /// a typed result, `call!void` to discard results, or `call!(LuaValue[])`
@@ -286,11 +287,3 @@ void registerLibrary(Args...)(LuaState state, string libName)
     }}
     raw.setGlobal(state.handle, toStringz(libName));
 }
-
-
-
-
-
-
-
-

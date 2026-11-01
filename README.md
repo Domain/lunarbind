@@ -6,8 +6,9 @@
 > a first userdata/object model are implemented and compile on DMD-frontend
 > (LDC 1.43) against Lua 5.1–5.4 API profiles. The runtime smoke tests pass
 > against LuaJIT 2.1.0-beta3 on Windows (Lua 5.2–5.4 runtime runs are left to CI,
-> which installs the corresponding system libraries). The public API is not
-> frozen yet.
+> which installs the corresponding system libraries). References created inside
+> callbacks share the owner state core, and cross-state use is rejected. The
+> public API is not frozen yet.
 
 ## Why another binding?
 
@@ -16,7 +17,8 @@ embedding wrapper, but its value-semantic `push`/`get` model cannot provide
 transparent D-class ↔ Lua-object interoperation. lunarbind is a clean base for
 that goal:
 
-- explicit, shared `LuaState` lifetime; no `LuaState*` dangling from refs;
+- explicit, shared `LuaState` lifetime; refs created inside callbacks share the
+  owner's `StateCore`, and cross-state use is rejected;
 - registry references with deterministic release (`LuaRef`, `LuaTable`,
   `LuaFunction`);
 - one `extern(C)` trampoline per signature for callbacks (never type-punning
@@ -127,6 +129,16 @@ marshal       pushTo!T / popFrom!T, LuaRef, LuaString (zero-copy view)
 raw           lua_State* + version compat helpers, StackGuard
 bindings      hand-written, version-selected C API declarations
 ```
+
+### Lifetime model
+
+`LuaState.open()` creates a reference-counted `StateCore` and records it in the
+Lua registry. `LuaState.wrap(L)` — used by every callback — looks that core up
+instead of creating a fresh handle, so `LuaRef`/`LuaTable`/`LuaFunction` values
+created inside a callback stay valid after the callback returns. The underlying
+`lua_State` is closed when the last handle and reference are released. Pushing a
+reference into a different Lua state throws `LuaStateException` instead of
+silently reading the wrong registry.
 
 Goals and non-goals:
 

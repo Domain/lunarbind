@@ -20,6 +20,7 @@ struct LuaTable
     LuaState state() { return _ref.state(); }
     LuaRef ref_() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }
+    void pushInto(LuaState target) { _ref.pushInto(target); }
 
     /// Get a field/entry. `key` may be a string, integer, or any pushable value.
     T get(T, K)(K key)
@@ -93,9 +94,3 @@ struct LuaTable
         return 0;
     }
 }
-
-
-
-
-
-

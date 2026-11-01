@@ -311,7 +311,11 @@ struct LuaClass(T)
     /// Read a D object from a Lua userdata at `idx`.
     static T get(LuaState state, int idx)
     {
-        auto p = cast(T*) luaL_checkudata(state.handle, idx, toStringz(metaName!T));
+        if (lua_type(state.handle, idx) == LUA_TNIL)
+            return null;
+        if (!isInstance(state, idx))
+            throw new LuaTypeException("expected userdata of type " ~ T.stringof);
+        auto p = cast(T*) lua_touserdata(state.handle, idx);
         return *p;
     }
 
@@ -372,8 +376,3 @@ struct LuaClass(T)
         // luaL_newmetatable leaves the metatable on the stack.
     }
 }
-
-
-
-
-

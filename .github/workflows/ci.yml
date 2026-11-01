@@ -12,6 +12,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - config: lua51
+            apt: liblua5.1-0-dev
+            dc: ldc-latest
+          - config: lua52
+            apt: liblua5.2-dev
+            dc: ldc-latest
+          - config: lua53
+            apt: liblua5.3-dev
+            dc: ldc-latest
           - config: lua54
             apt: liblua5.4-dev
             dc: ldc-latest

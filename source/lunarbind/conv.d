@@ -44,11 +44,16 @@ void pushTo(T)(LuaState L, auto ref T value)
         if (value.isNull())
             lua_pushnil(L.handle);
         else
-            value.push();
+            value.pushInto(L);
     }
     else static if (is(T == LuaTable) || is(T == LuaFunction))
     {
-        value.push();
+        value.pushInto(L);
+    }
+    else static if (is(T == class))
+    {
+        import lunarbind.object : LuaClass;
+        LuaClass!T.push(L, value);
     }
     else static if (is(T == LuaString))
     {
@@ -230,13 +235,15 @@ T popFrom(T)(LuaState L, int idx)
         }
         return result;
     }
+    else static if (is(T == class))
+    {
+        if (lua_type(h, idx) == LUA_TNIL)
+            return null;
+        import lunarbind.object : LuaClass;
+        return LuaClass!T.get(L, idx);
+    }
     else
     {
         static assert(0, "lunarbind: no popFrom implementation for type " ~ T.stringof);
     }
 }
-
-
-
-
-

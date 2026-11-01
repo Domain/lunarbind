@@ -9,6 +9,10 @@ import lunarbind.value : LuaValue;
 import std.string : toStringz;
 import std.typecons : RefCounted;
 
+/// Registry key used to find the owner StateCore from a raw `lua_State*`.
+/// The address of this variable is used as a light userdata key.
+private __gshared ubyte stateCoreKey;
+
 // ---------------------------------------------------------------------------
 // State core: owns the lua_State* and is shared by LuaState/LuaRef.
 // ---------------------------------------------------------------------------
@@ -55,6 +59,24 @@ final class StateCore
     }
 }
 
+/// Associate `core` with `L` so callbacks can recover the owning handle.
+private void storeStateCore(lua_State* L, StateCore core) nothrow
+{
+    lua_pushlightuserdata(L, cast(void*) &stateCoreKey);
+    lua_pushlightuserdata(L, cast(void*) core);
+    lua_rawset(L, LUA_REGISTRYINDEX);
+}
+
+/// Recover the owner StateCore for `L`, or null for a foreign state.
+private StateCore loadStateCore(lua_State* L) nothrow
+{
+    lua_pushlightuserdata(L, cast(void*) &stateCoreKey);
+    lua_rawget(L, LUA_REGISTRYINDEX);
+    auto p = lua_touserdata(L, -1);
+    raw.pop(L, 1);
+    return p is null ? null : cast(StateCore) p;
+}
+
 // ---------------------------------------------------------------------------
 // LuaState: a cheap, copyable, shared handle.
 // ---------------------------------------------------------------------------
@@ -66,6 +88,14 @@ struct LuaState
     private this(lua_State* L, bool ownsClose)
     {
         _core = new StateCore(L, ownsClose);
+    }
+
+    /// Adopt an existing core, retaining it.
+    private this(StateCore core, bool retain) nothrow
+    {
+        _core = core;
+        if (retain)
+            _core.retain();
     }
 
     this(this) nothrow
@@ -101,6 +131,7 @@ struct LuaState
             throw new LuaException("luaL_newstate() failed");
 
         auto state = LuaState(L, true);
+        storeStateCore(L, state._core);
         if (openLibs)
             luaL_openlibs(L);
         return state;
@@ -111,15 +142,29 @@ struct LuaState
     {
         if (L is null)
             throw new LuaStateException("cannot adopt a null lua_State");
-        return LuaState(L, true);
+        if (loadStateCore(L) !is null)
+            throw new LuaStateException("this lua_State already has an owning LuaState");
+        auto state = LuaState(L, true);
+        storeStateCore(L, state._core);
+        return state;
     }
 
     /// Wrap an existing state without taking ownership. Intended for callbacks.
+    /// When the state was created by LuaState.open/adopt, this shares the
+    /// owner's StateCore so references stay valid for the state's lifetime.
     static LuaState wrap(lua_State* L)
     {
         if (L is null)
             throw new LuaStateException("cannot wrap a null lua_State");
+        if (auto core = loadStateCore(L))
+            return LuaState(core, true);
         return LuaState(L, false);
+    }
+
+    /// True when both handles share the same StateCore (same lua_State).
+    bool sharesState(LuaState other)
+    {
+        return _core is other._core;
     }
 
     /// Explicitly close an owned state. Throws if LuaRef copies still exist.
@@ -127,6 +172,8 @@ struct LuaState
     {
         if (_core is null)
             return;
+        if (!_core.ownsClose)
+            throw new LuaStateException("cannot close a non-owning LuaState wrapper");
         if (_core.refs != 1)
             throw new LuaStateException("cannot close a LuaState while references are still alive");
         _core.close();
@@ -420,6 +467,22 @@ struct LuaRef
         lua_rawgeti(_holder.state.handle, LUA_REGISTRYINDEX, _holder.ref_);
     }
 
+    /// True when this reference belongs to a live `target` Lua state.
+    bool belongsTo(LuaState target)
+    {
+        auto from = _holder.state.handle;
+        auto to = target.handle;
+        return from !is null && from is to;
+    }
+
+    /// Push this reference, refusing to leak it into a different Lua state.
+    void pushInto(LuaState target)
+    {
+        if (!belongsTo(target))
+            throw new LuaStateException("LuaRef belongs to a different Lua state");
+        push();
+    }
+
     LuaType type()
     {
         StackGuard guard = StackGuard(_holder.state);
@@ -468,10 +531,3 @@ private size_t strlen(const(char)* s) @nogc nothrow
             n++;
     return n;
 }
-
-
-
-
-
-
-

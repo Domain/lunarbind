@@ -84,6 +84,19 @@ struct LuaValue
     /// Push this value onto the stack.
     void push(LuaState state)
     {
+        switch (kind)
+        {
+            case LuaType.table:
+            case LuaType.function_:
+            case LuaType.thread:
+            case LuaType.userdata:
+                if (!ref_.isNull() && !ref_.belongsTo(state))
+                    throw new LuaStateException("LuaValue belongs to a different Lua state");
+                break;
+            default:
+                break;
+        }
+
         final switch (kind)
         {
             case LuaType.none:
@@ -117,6 +130,3 @@ struct LuaValue
         }
     }
 }
-
-
-
