@@ -41,7 +41,7 @@ void main()
     LuaClass!Counter.setGlobal(L, "counter", counter);
     L.doString(`
         counter:add(5)
-        assert(counter.get() == 15)
+        assert(counter:get() == 15)
     `);
     assert(counter.value == 15);
 }
