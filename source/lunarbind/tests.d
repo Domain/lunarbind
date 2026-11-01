@@ -72,6 +72,34 @@ class Node
     }
 }
 
+class Animal
+{
+    string name;
+
+    this(string name)
+    {
+        this.name = name;
+    }
+
+    string speak()
+    {
+        return "...";
+    }
+}
+
+class Dog : Animal
+{
+    this(string name)
+    {
+        super(name);
+    }
+
+    override string speak()
+    {
+        return "woof";
+    }
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -204,6 +232,32 @@ unittest
     assert(asInt(nodeResult[0]) == 2);
     L.doString("nodeA.next = nil");
     assert(nodeA.next is null);
+
+    // Derived userdata can be viewed as a base class, but a base userdata is
+    // not accepted as a derived class.
+    auto dog = new Dog("rex");
+    LuaClass!Dog.setGlobal(L, "dog", dog);
+    auto animal = LuaClass!Animal.getGlobal(L, "dog");
+    assert(animal is dog);
+
+    auto dogValue = L.getGlobal!LuaValue("dog");
+    dogValue.push(L);
+    assert(LuaClass!Animal.isInstance(L, -1));
+    assert(LuaClass!Dog.isInstance(L, -1));
+    L.pop(1);
+
+    L.setGlobal("animal", animal); // static type Animal: base metatable
+    auto animalValue = L.getGlobal!LuaValue("animal");
+    animalValue.push(L);
+    assert(LuaClass!Animal.isInstance(L, -1));
+    assert(!LuaClass!Dog.isInstance(L, -1));
+    L.pop(1);
+
+    auto sameView = L.eval("return dog == animal")[0];
+    assert(sameView.kind == LuaType.boolean && sameView.booleanValue);
+    auto speak = L.eval("return dog:speak(), animal:speak()");
+    assert(speak[0].stringValue == "woof");
+    assert(speak[1].stringValue == "woof");
 
     // a wrapper must share the owner's core
     auto wrapped = LuaState.wrap(L.handle);

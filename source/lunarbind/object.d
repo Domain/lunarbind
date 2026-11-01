@@ -25,7 +25,7 @@ import std.string : toStringz;
 import std.traits : fullyQualifiedName, Parameters, ReturnType, isIntegral,
                     isFloatingPoint, isSomeString, isDynamicArray,
                     isAssociativeArray, isInstanceOf, functionAttributes,
-                    FunctionAttribute, Unqual;
+                    FunctionAttribute, BaseClassesTuple, Unqual;
 import std.typecons : Tuple, Nullable;
 
 // ---------------------------------------------------------------------------
@@ -315,16 +315,32 @@ private void ensureIdentityTable(lua_State* L, int metaIdx)
     // The identity table is left on top of the stack.
 }
 
-private extern(C) int classEq(T)(lua_State* L) nothrow
+private extern(C) int classEq(lua_State* L) nothrow
 {
-    // Compare the boxed D references, not the userdata addresses. Repeated
-    // pushes normally reuse one userdata, but different class views (or a
-    // fresh userdata created after the previous one was collected) must still
-    // compare equal.
-    auto a = cast(T**) lua_touserdata(L, 1);
-    auto b = cast(T**) lua_touserdata(L, 2);
+    // Compare the boxed D references, not the userdata addresses. All class
+    // metatables share this function, so a base-class view and a derived-class
+    // view of the same object also compare equal. D class subobjects start at
+    // offset zero (D has single class inheritance), so the stored reference
+    // pointers are directly comparable.
+    auto a = cast(void**) lua_touserdata(L, 1);
+    auto b = cast(void**) lua_touserdata(L, 2);
     lua_pushboolean(L, a !is null && b !is null && *a is *b ? 1 : 0);
     return 1;
+}
+
+// Lua's __eq is only consulted when both operands carry the *same* metamethod
+// object. Reuse one closure per Lua state so base and derived class views can
+// compare equal.
+private void pushClassEq(lua_State* L)
+{
+    lua_getfield(L, LUA_REGISTRYINDEX, "__lunarbind_class_eq");
+    if (lua_type(L, -1) == LUA_TFUNCTION)
+        return;
+
+    raw.pop(L, 1);
+    pushCFunction(L, &classEq);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, LUA_REGISTRYINDEX, "__lunarbind_class_eq");
 }
 
 private extern(C) int classIndex(T)(lua_State* L) nothrow
@@ -561,17 +577,30 @@ struct LuaClass(T)
     /// Check whether the value at `idx` is an instance of this class.
     static bool isInstance(LuaState state, int idx)
     {
+        idx = raw.absIndex(state.handle, idx); // stack pushes below shift idx
         if (lua_type(state.handle, idx) != LUA_TUSERDATA)
             return false;
         auto p = lua_touserdata(state.handle, idx);
         if (p is null)
             return false;
+
+        StackGuard guard = StackGuard(state);
+        ensureMetatable(state); // [T meta]
+
         if (lua_getmetatable(state.handle, idx) == 0)
             return false;
-        raw.getMetatable(state.handle, toStringz(metaName!T)); // allocates in @nogc -- see below
-        auto eq = lua_rawequal(state.handle, -1, -2) != 0;
-        raw.pop(state.handle, 2);
-        return eq;
+        // [T meta, userdata meta]
+        if (lua_rawequal(state.handle, -1, -2) != 0)
+            return true;
+
+        // A derived class metatable lists its base metatables. Accept those,
+        // but never a base userdata as an instance of a derived class.
+        lua_getfield(state.handle, -1, "__lunarbind_bases"); // [T meta, ud meta, bases]
+        if (lua_type(state.handle, -1) != LUA_TTABLE)
+            return false;
+        lua_pushvalue(state.handle, -3); // [T meta, ud meta, bases, T meta]
+        lua_rawget(state.handle, -2);    // [T meta, ud meta, bases, value]
+        return lua_type(state.handle, -1) != LUA_TNIL;
     }
 
     /// Ensure the class metatable exists in the registry.
@@ -592,8 +621,22 @@ struct LuaClass(T)
             lua_setfield(state.handle, -2, "__index");
             pushCFunction(state.handle, &classNewIndex!T);
             lua_setfield(state.handle, -2, "__newindex");
-            pushCFunction(state.handle, &classEq!T);
+            pushClassEq(state.handle);
             lua_setfield(state.handle, -2, "__eq");
+
+            // Record every base-class metatable so LuaClass!Base can accept a
+            // derived userdata (upcasts) without accepting downcasts.
+            lua_createtable(state.handle, 0, 0);
+            static foreach (B; BaseClassesTuple!T)
+            {{
+                static if (!is(B == Object))
+                {
+                    LuaClass!B.ensureMetatable(state); // [meta, bases, base meta]
+                    lua_pushboolean(state.handle, 1);
+                    lua_rawset(state.handle, -3);      // [meta, bases]
+                }
+            }}
+            lua_setfield(state.handle, -2, "__lunarbind_bases");
 
             // Attach the identity table eagerly so normal pushes only pay for
             // one lookup. ensureIdentityTable leaves it on the stack.
