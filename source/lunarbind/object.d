@@ -12,7 +12,9 @@
 ///   or zero-argument method.
 /// - Arithmetic, unary, comparison and call operators map to D `opBinary`,
 ///   `opUnary`, `opCmp` and `opCall` for same-class operands.
-/// - Index operators, default arguments and varargs are future work.
+/// - `obj[key]` and `obj[key] = value` map to D `opIndex`/`opIndexAssign`;
+///   string keys still resolve fields, properties and methods first.
+/// - Default arguments and varargs are future work.
 module lunarbind.object;
 
 import lunarbind.raw;
@@ -224,6 +226,20 @@ private bool argsMatch(Params...)(LuaState state, int startIdx, size_t nargs)
     return true;
 }
 
+// Stricter key screen for `opIndex`/`opIndexAssign`. Strings only match Lua
+// strings and booleans only match Lua booleans, so an integer key prefers an
+// integer overload instead of being converted by a string overload.
+private bool luaKeyMatches(T)(LuaState state, int idx)
+{
+    auto t = lua_type(state.handle, idx);
+    static if (is(T == LuaString) || isSomeString!T)
+        return t == LUA_TSTRING;
+    else static if (is(T == bool))
+        return t == LUA_TBOOLEAN;
+    else
+        return luaArgMatches!T(state, idx);
+}
+
 // Constructors are introspected through "__ctor" rather than allMembers.  A
 // class with no explicit constructors has the implicit default `new T()`.
 private template hasExplicitConstructors(T)
@@ -407,6 +423,63 @@ private template unaryOperatorBindable(T, string op)
             isBindableType!(Unqual!(typeof(T.init.opUnary!op())));
     else
         enum unaryOperatorBindable = false;
+}
+
+private template indexGetOverloadBindable(alias F)
+{
+    static if (isPublicOverload!F
+               && __traits(compiles, Parameters!F)
+               && __traits(compiles, ReturnType!F)
+               && Parameters!F.length == 1
+               && allBindable!(Parameters!F)
+               && !is(ReturnType!F == void)
+               && isBindableReturn!(ReturnType!F))
+        enum indexGetOverloadBindable = true;
+    else
+        enum indexGetOverloadBindable = false;
+}
+
+private template indexSetOverloadBindable(alias F)
+{
+    static if (isPublicOverload!F
+               && __traits(compiles, Parameters!F)
+               && Parameters!F.length == 2
+               && allBindable!(Parameters!F))
+        enum indexSetOverloadBindable = true;
+    else
+        enum indexSetOverloadBindable = false;
+}
+
+private template indexGetBindable(T, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, "opIndex")))
+    {
+        alias overloads = __traits(getOverloads, T, "opIndex");
+        static if (i < overloads.length)
+            enum indexGetBindable =
+                indexGetOverloadBindable!(overloads[i])
+                || indexGetBindable!(T, i + 1);
+        else
+            enum indexGetBindable = false;
+    }
+    else
+        enum indexGetBindable = false;
+}
+
+private template indexSetBindable(T, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, "opIndexAssign")))
+    {
+        alias overloads = __traits(getOverloads, T, "opIndexAssign");
+        static if (i < overloads.length)
+            enum indexSetBindable =
+                indexSetOverloadBindable!(overloads[i])
+                || indexSetBindable!(T, i + 1);
+        else
+            enum indexSetBindable = false;
+    }
+    else
+        enum indexSetBindable = false;
 }
 
 // Object itself provides opCmp; only expose ordering when a class (or one of
@@ -711,51 +784,103 @@ private void pushClassEq(lua_State* L)
     lua_setfield(L, LUA_REGISTRYINDEX, "__lunarbind_class_eq");
 }
 
+private bool tryIndexGet(T, alias F)(LuaState state, T self, bool strictKey)
+{
+    alias Params = Parameters!F;
+    alias K = Unqual!(Params[0]);
+    bool matches = strictKey
+        ? luaKeyMatches!K(state, 2)
+        : luaArgMatches!K(state, 2);
+    if (!matches)
+        return false;
+
+    auto key = popFrom!K(state, 2);
+    pushTo(state, self.opIndex(key));
+    return true;
+}
+
+private bool tryIndexSet(T, alias F)(LuaState state, T self, bool strictKey)
+{
+    alias Params = Parameters!F;
+    alias V = Unqual!(Params[0]);
+    alias K = Unqual!(Params[1]);
+    bool keyMatches = strictKey
+        ? luaKeyMatches!K(state, 2)
+        : luaArgMatches!K(state, 2);
+    if (!keyMatches || !luaArgMatches!V(state, 3))
+        return false;
+
+    auto value = popFrom!V(state, 3);
+    auto key = popFrom!K(state, 2);
+    self.opIndexAssign(value, key);
+    return true;
+}
+
 private extern(C) int classIndex(T)(lua_State* L) nothrow
 {
     try
     {
         auto state = LuaState.wrap(L);
-        size_t len;
-        auto keyPtr = lua_tolstring(L, 2, &len);
-        if (keyPtr is null)
-        {
-            lua_pushnil(L);
-            return 1;
-        }
-        const(char)[] key = keyPtr[0 .. len];
         T self = *cast(T*) lua_touserdata(L, 1);
 
-        static foreach (member; __traits(allMembers, T))
-        {{
-            static if (isPublicMember!(T, member) && isExposedName!member)
+        // Only string keys can name fields/methods. Check the type first so
+        // numeric and other keys stay intact instead of being coerced by
+        // lua_tolstring.
+        if (lua_type(L, 2) == LUA_TSTRING)
+        {
+            size_t len;
+            auto keyPtr = lua_tolstring(L, 2, &len);
+            const(char)[] key = keyPtr[0 .. len];
+
+            static foreach (member; __traits(allMembers, T))
+            {{
+                static if (isPublicMember!(T, member) && isExposedName!member)
+                {
+                    static if (hasPropertyGetter!(T, member))
+                    {
+                        if (key == member)
+                        {
+                            pushTo(state, __traits(getMember, self, member)());
+                            return 1;
+                        }
+                    }
+                    else static if (fieldBindable!(T, member))
+                    {
+                        if (key == member)
+                        {
+                            pushTo(state, __traits(getMember, self, member));
+                            return 1;
+                        }
+                    }
+                    else static if (methodBindable!(T, member))
+                    {
+                        if (key == member)
+                        {
+                            pushCFunction(L, &methodThunk!(T, member));
+                            return 1;
+                        }
+                    }
+                }
+            }}
+        }
+
+        // Fall back to D's opIndex for keys that are not field/method names.
+        // Prefer exact key-type matches, then the looser conversion screen.
+        static if (indexGetBindable!T)
+        {
+            foreach (pass; 0 .. 2)
             {
-                static if (hasPropertyGetter!(T, member))
-                {
-                    if (key == member)
+                bool strictKey = pass == 0;
+                static foreach (i, F; __traits(getOverloads, T, "opIndex"))
+                {{
+                    static if (indexGetOverloadBindable!F)
                     {
-                        pushTo(state, __traits(getMember, self, member)());
-                        return 1;
+                        if (tryIndexGet!(T, F)(state, self, strictKey))
+                            return 1;
                     }
-                }
-                else static if (fieldBindable!(T, member))
-                {
-                    if (key == member)
-                    {
-                        pushTo(state, __traits(getMember, self, member));
-                        return 1;
-                    }
-                }
-                else static if (methodBindable!(T, member))
-                {
-                    if (key == member)
-                    {
-                        pushCFunction(L, &methodThunk!(T, member));
-                        return 1;
-                    }
-                }
+                }}
             }
-        }}
+        }
 
         lua_pushnil(L);
         return 1;
@@ -772,46 +897,70 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
     try
     {
         auto state = LuaState.wrap(L);
-        size_t len;
-        auto keyPtr = lua_tolstring(L, 2, &len);
-        if (keyPtr is null)
-        {
-            luaL_argerror(L, 2, "field name must be a string");
-            return 0;
-        }
-        const(char)[] key = keyPtr[0 .. len];
         T self = *cast(T*) lua_touserdata(L, 1);
 
-        static foreach (member; __traits(allMembers, T))
-        {{
-            static if (isPublicMember!(T, member) && isExposedName!member)
-            {
-                static if (hasPropertySetter!(T, member))
-                {
-                    if (key == member)
-                    {
-                        alias Setter = propertySetter!(T, member);
-                        alias SetterParams = Parameters!Setter;
-                        alias PT = Unqual!(SetterParams[0]);
-                        auto value = popFrom!PT(state, 3);
-                        __traits(getMember, self, member)(value);
-                        return 0;
-                    }
-                }
-                else static if (fieldBindable!(T, member))
-                {
-                    if (key == member)
-                    {
-                        alias FT = Unqual!(fieldType!(T, member));
-                        __traits(getMember, self, member) = popFrom!FT(state, 3);
-                        return 0;
-                    }
-                }
-            }
-        }}
+        if (lua_type(L, 2) == LUA_TSTRING)
+        {
+            size_t len;
+            auto keyPtr = lua_tolstring(L, 2, &len);
+            const(char)[] key = keyPtr[0 .. len];
 
-        luaL_argerror(L, 2, "unknown field");
-        return 0;
+            static foreach (member; __traits(allMembers, T))
+            {{
+                static if (isPublicMember!(T, member) && isExposedName!member)
+                {
+                    static if (hasPropertySetter!(T, member))
+                    {
+                        if (key == member)
+                        {
+                            alias Setter = propertySetter!(T, member);
+                            alias SetterParams = Parameters!Setter;
+                            alias PT = Unqual!(SetterParams[0]);
+                            auto value = popFrom!PT(state, 3);
+                            __traits(getMember, self, member)(value);
+                            return 0;
+                        }
+                    }
+                    else static if (fieldBindable!(T, member))
+                    {
+                        if (key == member)
+                        {
+                            alias FT = Unqual!(fieldType!(T, member));
+                            __traits(getMember, self, member) = popFrom!FT(state, 3);
+                            return 0;
+                        }
+                    }
+                }
+            }}
+        }
+
+        // D's opIndexAssign takes the value first and the key second. Prefer
+        // exact key-type matches, then the looser conversion screen.
+        static if (indexSetBindable!T)
+        {
+            foreach (pass; 0 .. 2)
+            {
+                bool strictKey = pass == 0;
+                static foreach (i, F; __traits(getOverloads, T, "opIndexAssign"))
+                {{
+                    static if (indexSetOverloadBindable!F)
+                    {
+                        if (tryIndexSet!(T, F)(state, self, strictKey))
+                            return 0;
+                    }
+                }}
+            }
+        }
+
+        if (lua_type(L, 2) == LUA_TSTRING)
+        {
+            luaL_argerror(L, 2, "unknown field");
+            return 0;
+        }
+
+        auto msg = T.stringof ~ " does not support indexed assignment";
+        lua_pushlstring(L, msg.ptr, msg.length);
+        return lua_error(L);
     }
     catch (Throwable e)
     {

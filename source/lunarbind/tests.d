@@ -203,6 +203,34 @@ class Callable
     }
 }
 
+class Dict
+{
+    long[string] named;
+    long[int] indexed;
+
+    long opIndex(string key) const
+    {
+        auto p = key in named;
+        return p is null ? -1 : *p;
+    }
+
+    void opIndexAssign(long value, string key)
+    {
+        named[key] = value;
+    }
+
+    long opIndex(int index) const
+    {
+        auto p = index in indexed;
+        return p is null ? -1 : *p;
+    }
+
+    void opIndexAssign(long value, int index)
+    {
+        indexed[index] = value;
+    }
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -380,6 +408,23 @@ unittest
     LuaClass!Callable.setGlobal(L, "callable", callable);
     auto callResult = L.eval("return callable(5)");
     assert(asInt(callResult[0]) == 15);
+
+    // D opIndex/opIndexAssign handle keys that are not field names. Numeric
+    // keys must stay numeric instead of being coerced to strings.
+    auto dict = new Dict;
+    LuaClass!Dict.setGlobal(L, "dict", dict);
+    auto indexResult = L.eval("
+        dict['seed'] = 5
+        assert(dict['seed'] == 5)
+        dict[7] = 9
+        assert(dict[7] == 9)
+        assert(dict['missing'] == -1)
+        return dict['seed'], dict[7]
+    ");
+    assert(asInt(indexResult[0]) == 5);
+    assert(asInt(indexResult[1]) == 9);
+    assert(dict.named.length == 1 && "seed" in dict.named);
+    assert(dict.indexed.length == 1 && 7 in dict.indexed);
 
     // Constructor arity errors surface as Lua errors.
     bool ctorFailed;
