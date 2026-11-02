@@ -5,9 +5,10 @@
 /// - D -> Lua and Lua -> D object identity is preserved (full userdata stores
 ///   the class reference, and the D GC is rooted while Lua owns the userdata).
 /// - Public fields and `@property` accessors are readable/writable from Lua.
-/// - Public single-overload methods are callable as `obj:method(...)`.
+/// - Public methods are callable as `obj:method(...)`; overloads are selected
+///   by arity and Lua argument types.
 /// - Registered classes can be constructed from Lua with `Class(args...)`.
-/// - Operator overloads and general method overload resolution are future work.
+/// - Operator overloads, default arguments and varargs are future work.
 module lunarbind.object;
 
 import lunarbind.raw;
@@ -93,16 +94,24 @@ private template isBindableReturn(T)
         enum isBindableReturn = isBindableType!T;
 }
 
-private template methodBindable(T, string member)
+private template overloadBindable(alias Method)
 {
-    static if (memberCount!(T, member) == 1)
+    static if (__traits(compiles, Parameters!Method)
+               && __traits(compiles, ReturnType!Method))
+        enum overloadBindable =
+            allBindable!(Parameters!Method) && isBindableReturn!(ReturnType!Method);
+    else
+        enum overloadBindable = false;
+}
+
+private template methodBindable(T, string member, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, member)))
     {
-        alias Method = __traits(getOverloads, T, member)[0];
-        static if (__traits(compiles, Parameters!Method))
-        {
-            enum paramsOk = allBindable!(Parameters!Method);
-            enum methodBindable = paramsOk && isBindableReturn!(ReturnType!Method);
-        }
+        alias overloads = __traits(getOverloads, T, member);
+        static if (i < overloads.length)
+            enum methodBindable =
+                overloadBindable!(overloads[i]) || methodBindable!(T, member, i + 1);
         else
             enum methodBindable = false;
     }
@@ -116,6 +125,64 @@ private template allBindable(Params...)
         enum allBindable = true;
     else
         enum allBindable = isBindableType!(Params[0]) && allBindable!(Params[1 .. $]);
+}
+
+// Runtime type screen used to choose between overloads. It deliberately
+// mirrors `popFrom` only closely enough to avoid picking an obviously wrong
+// candidate; e.g. both `int` and `string` accept a Lua number, and the first
+// matching overload wins.
+private bool luaArgMatches(T)(LuaState state, int idx)
+{
+    auto t = lua_type(state.handle, idx);
+    static if (is(T == LuaValue))
+        return true;
+    else static if (is(T == LuaRef))
+        return t != LUA_TNONE;
+    else static if (is(T == LuaTable))
+        return t == LUA_TTABLE;
+    else static if (is(T == LuaFunction))
+        return t == LUA_TFUNCTION;
+    else static if (is(T == LuaString))
+        return t == LUA_TSTRING || t == LUA_TNUMBER;
+    else static if (isSomeString!T)
+        return t == LUA_TSTRING || t == LUA_TNUMBER || t == LUA_TNIL;
+    else static if (is(T == bool))
+        return true;
+    else static if (isIntegral!T || isFloatingPoint!T)
+        return t == LUA_TNUMBER;
+    else static if (is(T == void*))
+        return t == LUA_TLIGHTUSERDATA || t == LUA_TNIL;
+    else static if (isInstanceOf!(Nullable, T))
+    {
+        if (t == LUA_TNIL)
+            return true;
+        alias U = typeof(T.init.get());
+        return luaArgMatches!U(state, idx);
+    }
+    else static if (isDynamicArray!T || isAssociativeArray!T)
+        return t == LUA_TTABLE || t == LUA_TNIL;
+    else static if (is(T == class))
+    {
+        if (t == LUA_TNIL)
+            return true;
+        if (t != LUA_TUSERDATA)
+            return false;
+        return LuaClass!T.isInstance(state, idx);
+    }
+    else
+        return false;
+}
+
+private bool argsMatch(Params...)(LuaState state, int startIdx, size_t nargs)
+{
+    if (nargs != Params.length)
+        return false;
+    static foreach (i, P; Params)
+    {{
+        if (!luaArgMatches!(Unqual!P)(state, startIdx + cast(int) i))
+            return false;
+    }}
+    return true;
 }
 
 // Constructors are introspected through "__ctor" rather than allMembers.  A
@@ -156,7 +223,7 @@ private template hasBindableConstructor(T)
 }
 
 // `@property` getters/setters share a member name, so they cannot go through
-// the single-overload method path. Find the first callable getter (zero args,
+// the method overload dispatch. Find the first callable getter (zero args,
 // non-void result) and setter (one bindable arg) in the overload set.
 private template isPropertyFunction(alias F)
 {
@@ -504,7 +571,7 @@ private extern(C) int constructorThunk(T)(lua_State* L) nothrow
                            && allBindable!(Parameters!Ctor)
                            && canNew!(T, Parameters!Ctor))
                 {
-                    if (nargs == Parameters!Ctor.length)
+                    if (argsMatch!(Parameters!Ctor)(state, 2, cast(size_t) nargs))
                     {
                         Tuple!(Parameters!Ctor) args;
                         static foreach (j, P; Parameters!Ctor)
@@ -525,8 +592,7 @@ private extern(C) int constructorThunk(T)(lua_State* L) nothrow
             }
         }
 
-        // TODO: pick an overload by Lua argument types as well as arity.
-        auto msg = "no bindable constructor for " ~ T.stringof;
+        auto msg = "no matching constructor for " ~ T.stringof;
         lua_pushlstring(L, msg.ptr, msg.length);
         return lua_error(L);
     }
@@ -543,30 +609,36 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         T self = *cast(T*) lua_touserdata(L, 1);
-        alias Method = __traits(getOverloads, T, member)[0];
-        alias Params = Parameters!Method;
+        auto nargs = cast(size_t)(lua_gettop(L) - 1);
 
-        auto nargs = lua_gettop(L) - 1;
-        if (nargs < Params.length)
-        {
-            lua_pushlstring(L, "not enough arguments".ptr, "not enough arguments".length);
-            return lua_error(L);
-        }
+        static foreach (i, Method; __traits(getOverloads, T, member))
+        {{
+            static if (overloadBindable!Method)
+            {
+                alias Params = Parameters!Method;
+                if (argsMatch!Params(state, 2, nargs))
+                {
+                    Tuple!Params args;
+                    static foreach (j, P; Params)
+                        args[j] = popFrom!(Unqual!P)(state, cast(int)(j + 2));
 
-        Tuple!Params args;
-        static foreach (i, P; Params)
-            args[i] = popFrom!(Unqual!P)(state, cast(int)(i + 2));
+                    static if (is(ReturnType!Method == void))
+                    {
+                        __traits(getMember, self, member)(args.expand);
+                        return 0;
+                    }
+                    else
+                    {
+                        pushTo(state, __traits(getMember, self, member)(args.expand));
+                        return 1;
+                    }
+                }
+            }
+        }}
 
-        static if (is(ReturnType!Method == void))
-        {
-            __traits(getMember, self, member)(args.expand);
-            return 0;
-        }
-        else
-        {
-            pushTo(state, __traits(getMember, self, member)(args.expand));
-            return 1;
-        }
+        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member;
+        lua_pushlstring(L, msg.ptr, msg.length);
+        return lua_error(L);
     }
     catch (Throwable e)
     {
@@ -689,8 +761,8 @@ struct LuaClass(T)
     }
 
     /// Register a global callable class table so Lua can construct instances
-    /// with `name(args...)`. Constructors are selected by arity and converted
-    /// through `popFrom`, so an argument type mismatch raises a Lua error.
+    /// with `name(args...)`. Overloads are selected by arity and Lua argument
+    /// types, then converted through `popFrom`.
     static void registerConstructor(LuaState state, string name)
     {
         static assert(hasBindableConstructor!T,

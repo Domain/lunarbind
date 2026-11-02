@@ -105,6 +105,41 @@ class DefaultConstructed
     int value = 7;
 }
 
+class Overloaded
+{
+    string kind;
+
+    this(int value)
+    {
+        kind = "int";
+    }
+
+    this(string value)
+    {
+        kind = "string";
+    }
+
+    this(int a, int b)
+    {
+        kind = "pair";
+    }
+
+    string pick(int value)
+    {
+        return "int";
+    }
+
+    string pick(string value)
+    {
+        return "string";
+    }
+
+    string pick(int a, int b)
+    {
+        return "pair";
+    }
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -226,6 +261,23 @@ unittest
     LuaClass!DefaultConstructed.registerConstructor(L, "DefaultConstructed");
     auto defaultConstructed = L.eval("return DefaultConstructed().value");
     assert(asInt(defaultConstructed[0]) == 7);
+
+    // Overloads are selected by arity and Lua argument types. Both
+    // constructors and methods share the same dispatch path.
+    LuaClass!Overloaded.registerConstructor(L, "Overloaded");
+    auto overloaded = L.eval("
+        local a = Overloaded(1)
+        local b = Overloaded('x')
+        local c = Overloaded(1, 2)
+        return a.kind, b.kind, c.kind,
+               a:pick(1), b:pick('x'), c:pick(1, 2)
+    ");
+    assert(overloaded[0].stringValue == "int");
+    assert(overloaded[1].stringValue == "string");
+    assert(overloaded[2].stringValue == "pair");
+    assert(overloaded[3].stringValue == "int");
+    assert(overloaded[4].stringValue == "string");
+    assert(overloaded[5].stringValue == "pair");
 
     // Constructor arity errors surface as Lua errors.
     bool ctorFailed;
