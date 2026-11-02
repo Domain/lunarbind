@@ -24,6 +24,11 @@ class Player
     {
         return hp;
     }
+
+    override string toString()
+    {
+        return "Player:" ~ name;
+    }
 }
 
 class Stats
@@ -137,6 +142,64 @@ class Overloaded
     string pick(int a, int b)
     {
         return "pair";
+    }
+}
+
+class Bag
+{
+    int[] items;
+
+    @property size_t length() const
+    {
+        return items.length;
+    }
+}
+
+class Vec
+{
+    int x;
+
+    this(int x)
+    {
+        this.x = x;
+    }
+
+    Vec opBinary(string op)(Vec other) const
+        if (op == "+" || op == "-")
+    {
+        return new Vec(op == "+" ? x + other.x : x - other.x);
+    }
+
+    string opBinary(string op)(Vec other) const
+        if (op == "~")
+    {
+        return "vec";
+    }
+
+    Vec opUnary(string op)() const
+        if (op == "-")
+    {
+        return new Vec(-x);
+    }
+
+    int opCmp(Vec other) const
+    {
+        return x < other.x ? -1 : x > other.x ? 1 : 0;
+    }
+}
+
+class Callable
+{
+    int base;
+
+    this(int base)
+    {
+        this.base = base;
+    }
+
+    int opCall(int value)
+    {
+        return base + value;
     }
 }
 
@@ -278,6 +341,45 @@ unittest
     assert(overloaded[3].stringValue == "int");
     assert(overloaded[4].stringValue == "string");
     assert(overloaded[5].stringValue == "pair");
+
+    // D toString and length integrate with Lua's tostring and # operators.
+    auto stringResult = L.eval("return tostring(player)");
+    assert(stringResult[0].stringValue == "Player:bob");
+
+    auto bag = new Bag;
+    bag.items = [1, 2, 3];
+    LuaClass!Bag.setGlobal(L, "bag", bag);
+    auto lenResult = L.eval("return #bag, bag.length");
+    assert(asInt(lenResult[0]) == 3);
+    assert(asInt(lenResult[1]) == 3);
+
+    // D operator overloads map to Lua metamethods.
+    auto vecA = new Vec(1);
+    auto vecB = new Vec(3);
+    LuaClass!Vec.setGlobal(L, "vecA", vecA);
+    LuaClass!Vec.setGlobal(L, "vecB", vecB);
+    auto opResult = L.eval("
+        local sum = vecA + vecB
+        local diff = vecB - vecA
+        local neg = -vecA
+        local joined = vecA .. vecB
+        return sum.x, diff.x, neg.x, joined,
+               vecA < vecB, vecA <= vecB, vecB < vecA, vecB <= vecA
+    ");
+    assert(asInt(opResult[0]) == 4);
+    assert(asInt(opResult[1]) == 2);
+    assert(asInt(opResult[2]) == -1);
+    assert(opResult[3].stringValue == "vec");
+    assert(opResult[4].booleanValue);
+    assert(opResult[5].booleanValue);
+    assert(!opResult[6].booleanValue);
+    assert(!opResult[7].booleanValue);
+
+    // A D opCall makes the userdata callable from Lua.
+    auto callable = new Callable(10);
+    LuaClass!Callable.setGlobal(L, "callable", callable);
+    auto callResult = L.eval("return callable(5)");
+    assert(asInt(callResult[0]) == 15);
 
     // Constructor arity errors surface as Lua errors.
     bool ctorFailed;

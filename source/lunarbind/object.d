@@ -8,7 +8,11 @@
 /// - Public methods are callable as `obj:method(...)`; overloads are selected
 ///   by arity and Lua argument types.
 /// - Registered classes can be constructed from Lua with `Class(args...)`.
-/// - Operator overloads, default arguments and varargs are future work.
+/// - `tostring(obj)` uses D `toString`; `#obj` uses a `length` field, property
+///   or zero-argument method.
+/// - Arithmetic, unary, comparison and call operators map to D `opBinary`,
+///   `opUnary`, `opCmp` and `opCall` for same-class operands.
+/// - Index operators, default arguments and varargs are future work.
 module lunarbind.object;
 
 import lunarbind.raw;
@@ -47,6 +51,14 @@ private template isPublicMember(T, string member)
         enum isPublicMember = __traits(getProtection, __traits(getMember, T, member)) == "public";
     else
         enum isPublicMember = false;
+}
+
+private template isPublicOverload(alias F)
+{
+    static if (__traits(compiles, __traits(getProtection, F)))
+        enum isPublicOverload = __traits(getProtection, F) == "public";
+    else
+        enum isPublicOverload = false;
 }
 
 private template isExposedName(string member)
@@ -97,7 +109,8 @@ private template isBindableReturn(T)
 private template overloadBindable(alias Method)
 {
     static if (__traits(compiles, Parameters!Method)
-               && __traits(compiles, ReturnType!Method))
+               && __traits(compiles, ReturnType!Method)
+               && isPublicOverload!Method)
         enum overloadBindable =
             allBindable!(Parameters!Method) && isBindableReturn!(ReturnType!Method);
     else
@@ -125,6 +138,32 @@ private template allBindable(Params...)
         enum allBindable = true;
     else
         enum allBindable = isBindableType!(Params[0]) && allBindable!(Params[1 .. $]);
+}
+
+// `Object.toString` exists on every class, but a class can hide it or provide
+// overloads. Find the first zero-argument char-string overload.
+private template toStringBindable(T, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, "toString")))
+    {
+        alias overloads = __traits(getOverloads, T, "toString");
+        static if (i < overloads.length)
+        {
+            alias F = overloads[i];
+            static if (isPublicOverload!F
+                       && __traits(compiles, Parameters!F)
+                       && __traits(compiles, ReturnType!F)
+                       && Parameters!F.length == 0
+                       && is(ReturnType!F : const(char)[]))
+                enum toStringBindable = true;
+            else
+                enum toStringBindable = toStringBindable!(T, i + 1);
+        }
+        else
+            enum toStringBindable = false;
+    }
+    else
+        enum toStringBindable = false;
 }
 
 // Runtime type screen used to choose between overloads. It deliberately
@@ -316,6 +355,89 @@ private template fieldBindable(T, string member)
         enum fieldBindable = false;
 }
 
+private template lengthMethodBindable(T, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, "length")))
+    {
+        alias overloads = __traits(getOverloads, T, "length");
+        static if (i < overloads.length)
+        {
+            alias F = overloads[i];
+            static if (isPublicOverload!F
+                       && __traits(compiles, Parameters!F)
+                       && __traits(compiles, ReturnType!F)
+                       && Parameters!F.length == 0
+                       && isIntegral!(Unqual!(ReturnType!F)))
+                enum lengthMethodBindable = true;
+            else
+                enum lengthMethodBindable = lengthMethodBindable!(T, i + 1);
+        }
+        else
+            enum lengthMethodBindable = false;
+    }
+    else
+        enum lengthMethodBindable = false;
+}
+
+private template lengthBindable(T)
+{
+    static if (isField!(T, "length")
+               && isIntegral!(Unqual!(fieldType!(T, "length"))))
+        enum lengthBindable = true;
+    else static if (hasPropertyGetter!(T, "length")
+                    && isIntegral!(Unqual!(ReturnType!(propertyGetter!(T, "length")))))
+        enum lengthBindable = true;
+    else
+        enum lengthBindable = lengthMethodBindable!T;
+}
+
+private template binaryOperatorBindable(T, string op)
+{
+    static if (__traits(compiles, T.init.opBinary!op(T.init)))
+        enum binaryOperatorBindable =
+            isBindableType!(Unqual!(typeof(T.init.opBinary!op(T.init))));
+    else
+        enum binaryOperatorBindable = false;
+}
+
+private template unaryOperatorBindable(T, string op)
+{
+    static if (__traits(compiles, T.init.opUnary!op()))
+        enum unaryOperatorBindable =
+            isBindableType!(Unqual!(typeof(T.init.opUnary!op())));
+    else
+        enum unaryOperatorBindable = false;
+}
+
+// Object itself provides opCmp; only expose ordering when a class (or one of
+// its bases) actually overrides it.
+private template compareOperatorBindable(T, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, "opCmp")))
+    {
+        alias overloads = __traits(getOverloads, T, "opCmp");
+        static if (i < overloads.length)
+        {
+            alias F = overloads[i];
+            static if (isPublicOverload!F
+                       && __traits(compiles, Parameters!F)
+                       && __traits(compiles, ReturnType!F)
+                       && __traits(compiles, __traits(parent, F))
+                       && Parameters!F.length == 1
+                       && !is(__traits(parent, F) == Object)
+                       && isIntegral!(Unqual!(ReturnType!F))
+                       && __traits(compiles, T.init.opCmp(T.init)))
+                enum compareOperatorBindable = true;
+            else
+                enum compareOperatorBindable = compareOperatorBindable!(T, i + 1);
+        }
+        else
+            enum compareOperatorBindable = false;
+    }
+    else
+        enum compareOperatorBindable = false;
+}
+
 // ---------------------------------------------------------------------------
 // Userdata helpers
 // ---------------------------------------------------------------------------
@@ -430,6 +552,148 @@ private extern(C) int classEq(lua_State* L) nothrow
     auto b = cast(void**) lua_touserdata(L, 2);
     lua_pushboolean(L, a !is null && b !is null && *a is *b ? 1 : 0);
     return 1;
+}
+
+private extern(C) int classToString(T)(lua_State* L) nothrow
+{
+    try
+    {
+        T self = *cast(T*) lua_touserdata(L, 1);
+        auto s = self.toString();
+        if (s is null)
+            s = "";
+        lua_pushlstring(L, s.ptr, s.length);
+        return 1;
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+private extern(C) int classLen(T)(lua_State* L) nothrow
+{
+    try
+    {
+        T self = *cast(T*) lua_touserdata(L, 1);
+        static if (isField!(T, "length"))
+            auto len = __traits(getMember, self, "length");
+        else
+            auto len = __traits(getMember, self, "length")();
+        lua_pushinteger(L, cast(lua_Integer) len);
+        return 1;
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+private extern(C) int classBinary(T, string op)(lua_State* L) nothrow
+{
+    try
+    {
+        auto state = LuaState.wrap(L);
+        if (!LuaClass!T.isInstance(state, 1) || !LuaClass!T.isInstance(state, 2))
+        {
+            auto msg = "operator " ~ op ~ " expects two " ~ T.stringof ~ " operands";
+            lua_pushlstring(L, msg.ptr, msg.length);
+            return lua_error(L);
+        }
+
+        T self = LuaClass!T.get(state, 1);
+        T other = LuaClass!T.get(state, 2);
+        pushTo(state, self.opBinary!op(other));
+        return 1;
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+private extern(C) int classUnary(T, string op)(lua_State* L) nothrow
+{
+    try
+    {
+        auto state = LuaState.wrap(L);
+        if (!LuaClass!T.isInstance(state, 1))
+        {
+            auto msg = "operator " ~ op ~ " expects a " ~ T.stringof ~ " operand";
+            lua_pushlstring(L, msg.ptr, msg.length);
+            return lua_error(L);
+        }
+
+        T self = LuaClass!T.get(state, 1);
+        pushTo(state, self.opUnary!op());
+        return 1;
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+private extern(C) int classCompare(T, bool inclusive)(lua_State* L) nothrow
+{
+    try
+    {
+        auto state = LuaState.wrap(L);
+        if (!LuaClass!T.isInstance(state, 1) || !LuaClass!T.isInstance(state, 2))
+        {
+            auto msg = "comparison expects two " ~ T.stringof ~ " operands";
+            lua_pushlstring(L, msg.ptr, msg.length);
+            return lua_error(L);
+        }
+
+        T self = LuaClass!T.get(state, 1);
+        T other = LuaClass!T.get(state, 2);
+        auto cmp = self.opCmp(other);
+        static if (inclusive)
+            lua_pushboolean(L, cmp <= 0 ? 1 : 0);
+        else
+            lua_pushboolean(L, cmp < 0 ? 1 : 0);
+        return 1;
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+private void setBinaryOperator(T, string op, string meta)(lua_State* L)
+{
+    static if (binaryOperatorBindable!(T, op))
+    {
+        pushCFunction(L, &classBinary!(T, op));
+        lua_setfield(L, -2, meta.ptr);
+    }
+}
+
+private void setUnaryOperator(T, string op, string meta)(lua_State* L)
+{
+    static if (unaryOperatorBindable!(T, op))
+    {
+        pushCFunction(L, &classUnary!(T, op));
+        lua_setfield(L, -2, meta.ptr);
+    }
+}
+
+private void setCompareOperator(T, bool inclusive)(lua_State* L)
+{
+    static if (compareOperatorBindable!T)
+    {
+        pushCFunction(L, &classCompare!(T, inclusive));
+        static if (inclusive)
+            lua_setfield(L, -2, "__le");
+        else
+            lua_setfield(L, -2, "__lt");
+    }
 }
 
 // Lua's __eq is only consulted when both operands carry the *same* metamethod
@@ -797,6 +1061,38 @@ struct LuaClass(T)
             lua_setfield(state.handle, -2, "__newindex");
             pushClassEq(state.handle);
             lua_setfield(state.handle, -2, "__eq");
+            static if (toStringBindable!T)
+            {
+                pushCFunction(state.handle, &classToString!T);
+                lua_setfield(state.handle, -2, "__tostring");
+            }
+            static if (lengthBindable!T)
+            {
+                pushCFunction(state.handle, &classLen!T);
+                lua_setfield(state.handle, -2, "__len");
+            }
+
+            setBinaryOperator!(T, "+", "__add")(state.handle);
+            setBinaryOperator!(T, "-", "__sub")(state.handle);
+            setBinaryOperator!(T, "*", "__mul")(state.handle);
+            setBinaryOperator!(T, "/", "__div")(state.handle);
+            setBinaryOperator!(T, "%", "__mod")(state.handle);
+            setBinaryOperator!(T, "^^", "__pow")(state.handle);
+            setBinaryOperator!(T, "~", "__concat")(state.handle);
+            setBinaryOperator!(T, "&", "__band")(state.handle);
+            setBinaryOperator!(T, "|", "__bor")(state.handle);
+            setBinaryOperator!(T, "^", "__bxor")(state.handle);
+            setBinaryOperator!(T, "<<", "__shl")(state.handle);
+            setBinaryOperator!(T, ">>", "__shr")(state.handle);
+            setUnaryOperator!(T, "-", "__unm")(state.handle);
+            setUnaryOperator!(T, "~", "__bnot")(state.handle);
+            setCompareOperator!(T, false)(state.handle);
+            setCompareOperator!(T, true)(state.handle);
+            static if (methodBindable!(T, "opCall"))
+            {
+                pushCFunction(state.handle, &methodThunk!(T, "opCall"));
+                lua_setfield(state.handle, -2, "__call");
+            }
 
             // Record every base-class metatable so LuaClass!Base can accept a
             // derived userdata (upcasts) without accepting downcasts.

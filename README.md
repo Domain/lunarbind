@@ -168,20 +168,22 @@ public methods (`obj:method(...)`) including overloads selected by arity and Lua
 argument types; `@property` getters/setters; class-typed fields and method
 parameters/results; inheritance-aware upcasts (a derived userdata is accepted as
 a base class, not vice versa); constructors from Lua through a registered class
-table (`Class(args...)`); `__gc`; `__eq`; D → Lua and Lua → D identity;
-weak-value identity tables so repeated pushes reuse the same userdata;
-reference-counted GC roots across states and class views.
+table (`Class(args...)`); `__tostring` from D `toString`; `__len` from a `length`
+field, property or zero-argument method; arithmetic, unary and comparison
+metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
+`__call` from `opCall`; `__gc`; `__eq`; D → Lua and Lua → D identity; weak-value
+identity tables so repeated pushes reuse the same userdata; reference-counted GC
+roots across states and class views.
 
-Not yet: operator metamethods, default arguments/varargs, struct reference
-semantics, `__tostring`, general weak tables. These are deliberately listed on
-the roadmap rather than half-implemented.
+Not yet: index operators (`opIndex`/`opIndexAssign`), default arguments/varargs,
+struct reference semantics, general weak tables. These are deliberately listed
+on the roadmap rather than half-implemented.
 
 ## Roadmap
 
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
-2. **Object model**: `__tostring`/`__len`, operator metamethods, structs by
-   reference, general weak tables.
+2. **Object model**: index operators, structs by reference, general weak tables.
 3. **Functions**: default args, varargs, `LuaState` injection, tuple returns,
    user-defined codecs (`LuaCodec`), coroutine wrappers.
 4. **Tooling**: `@LuaExport`/module builder as a single source for registration
