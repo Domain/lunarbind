@@ -100,6 +100,11 @@ class Dog : Animal
     }
 }
 
+class DefaultConstructed
+{
+    int value = 7;
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -206,6 +211,29 @@ unittest
     playerValue.push(L);
     assert(LuaClass!Player.isInstance(L, -1));
     L.pop(1);
+
+    // Lua can construct D classes through a registered global class table.
+    LuaClass!Player.registerConstructor(L, "Player");
+    auto constructed = L.eval("
+        local p = Player(5, 'made')
+        assert(p:health() == 5)
+        return p.hp, p.name
+    ");
+    assert(asInt(constructed[0]) == 5);
+    assert(constructed[1].stringValue == "made");
+
+    // Classes without explicit constructors get the implicit default one.
+    LuaClass!DefaultConstructed.registerConstructor(L, "DefaultConstructed");
+    auto defaultConstructed = L.eval("return DefaultConstructed().value");
+    assert(asInt(defaultConstructed[0]) == 7);
+
+    // Constructor arity errors surface as Lua errors.
+    bool ctorFailed;
+    try
+        L.eval("Player()");
+    catch (LuaException e)
+        ctorFailed = true;
+    assert(ctorFailed);
 
     // @property getters and setters
     auto stats = new Stats(10);

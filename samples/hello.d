@@ -44,5 +44,12 @@ void main()
         assert(counter:get() == 15)
     `);
     assert(counter.value == 15);
+
+    LuaClass!Counter.registerConstructor(L, "Counter");
+    L.doString(`
+        local made = Counter(2)
+        made:add(3)
+        assert(made:get() == 5)
+    `);
 }
 

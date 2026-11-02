@@ -4,10 +4,10 @@
 /// This is deliberately a *first* implementation:
 /// - D -> Lua and Lua -> D object identity is preserved (full userdata stores
 ///   the class reference, and the D GC is rooted while Lua owns the userdata).
-/// - Public fields are readable/writable from Lua.
+/// - Public fields and `@property` accessors are readable/writable from Lua.
 /// - Public single-overload methods are callable as `obj:method(...)`.
-/// - Inheritance, properties, operator overloads, constructors and overload
-///   resolution are future work.
+/// - Registered classes can be constructed from Lua with `Class(args...)`.
+/// - Operator overloads and general method overload resolution are future work.
 module lunarbind.object;
 
 import lunarbind.raw;
@@ -116,6 +116,43 @@ private template allBindable(Params...)
         enum allBindable = true;
     else
         enum allBindable = isBindableType!(Params[0]) && allBindable!(Params[1 .. $]);
+}
+
+// Constructors are introspected through "__ctor" rather than allMembers.  A
+// class with no explicit constructors has the implicit default `new T()`.
+private template hasExplicitConstructors(T)
+{
+    enum hasExplicitConstructors =
+        __traits(compiles, __traits(getOverloads, T, "__ctor"));
+}
+
+private template canNew(T, Params...)
+{
+    enum canNew = __traits(compiles, new T(Params.init));
+}
+
+private template anyBindableConstructor(T, size_t i = 0)
+{
+    static if (!hasExplicitConstructors!T)
+        enum anyBindableConstructor = canNew!T;
+    else static if (i < __traits(getOverloads, T, "__ctor").length)
+    {
+        alias Ctor = __traits(getOverloads, T, "__ctor")[i];
+        static if (__traits(compiles, Parameters!Ctor))
+            enum bindable =
+                allBindable!(Parameters!Ctor) && canNew!(T, Parameters!Ctor);
+        else
+            enum bindable = false;
+        enum anyBindableConstructor =
+            bindable || anyBindableConstructor!(T, i + 1);
+    }
+    else
+        enum anyBindableConstructor = false;
+}
+
+private template hasBindableConstructor(T)
+{
+    enum hasBindableConstructor = anyBindableConstructor!T;
 }
 
 // `@property` getters/setters share a member name, so they cannot go through
@@ -452,6 +489,54 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
     }
 }
 
+private extern(C) int constructorThunk(T)(lua_State* L) nothrow
+{
+    try
+    {
+        auto state = LuaState.wrap(L);
+        auto nargs = lua_gettop(L) - 1;
+
+        static if (hasExplicitConstructors!T)
+        {
+            static foreach (i, Ctor; __traits(getOverloads, T, "__ctor"))
+            {{
+                static if (__traits(compiles, Parameters!Ctor)
+                           && allBindable!(Parameters!Ctor)
+                           && canNew!(T, Parameters!Ctor))
+                {
+                    if (nargs == Parameters!Ctor.length)
+                    {
+                        Tuple!(Parameters!Ctor) args;
+                        static foreach (j, P; Parameters!Ctor)
+                            args[j] = popFrom!(Unqual!P)(state, cast(int)(j + 2));
+
+                        pushTo(state, new T(args.expand));
+                        return 1;
+                    }
+                }
+            }}
+        }
+        else static if (canNew!T)
+        {
+            if (nargs == 0)
+            {
+                pushTo(state, new T());
+                return 1;
+            }
+        }
+
+        // TODO: pick an overload by Lua argument types as well as arity.
+        auto msg = "no bindable constructor for " ~ T.stringof;
+        lua_pushlstring(L, msg.ptr, msg.length);
+        return lua_error(L);
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
 private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
 {
     try
@@ -601,6 +686,23 @@ struct LuaClass(T)
         lua_pushvalue(state.handle, -3); // [T meta, ud meta, bases, T meta]
         lua_rawget(state.handle, -2);    // [T meta, ud meta, bases, value]
         return lua_type(state.handle, -1) != LUA_TNIL;
+    }
+
+    /// Register a global callable class table so Lua can construct instances
+    /// with `name(args...)`. Constructors are selected by arity and converted
+    /// through `popFrom`, so an argument type mismatch raises a Lua error.
+    static void registerConstructor(LuaState state, string name)
+    {
+        static assert(hasBindableConstructor!T,
+                      "lunarbind: " ~ T.stringof ~
+                      " has no constructor with bindable parameters");
+        auto L = state.handle;
+        lua_createtable(L, 0, 0);
+        lua_createtable(L, 0, 1);
+        pushCFunction(L, &constructorThunk!T);
+        lua_setfield(L, -2, "__call");
+        lua_setmetatable(L, -2);
+        raw.setGlobal(L, toStringz(name));
     }
 
     /// Ensure the class metatable exists in the registry.
