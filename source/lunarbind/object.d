@@ -1,5 +1,5 @@
-/// Experimental D-object binding: expose D classes as Lua userdata with a
-/// metatable, public fields and methods.
+/// Experimental D-object binding: expose D classes and structs as Lua userdata
+/// with metatables, public fields and methods.
 ///
 /// This is deliberately a *first* implementation:
 /// - D -> Lua and Lua -> D object identity is preserved (full userdata stores
@@ -14,6 +14,8 @@
 ///   `opUnary`, `opCmp` and `opCall` for same-class operands.
 /// - `obj[key]` and `obj[key] = value` map to D `opIndex`/`opIndexAssign`;
 ///   string keys still resolve fields, properties and methods first.
+/// - D structs are boxed as mutable userdata (`LuaStruct!S`); field writes and
+///   mutating methods persist while Lua holds the box.
 /// - Default arguments and varargs are future work.
 module lunarbind.object;
 
@@ -32,7 +34,8 @@ import std.string : toStringz;
 import std.traits : fullyQualifiedName, Parameters, ReturnType, isIntegral,
                     isFloatingPoint, isSomeString, isDynamicArray,
                     isAssociativeArray, isInstanceOf, functionAttributes,
-                    FunctionAttribute, BaseClassesTuple, Unqual;
+                    FunctionAttribute, BaseClassesTuple, Unqual, FieldTypeTuple,
+                    isStaticArray, isPointer;
 import std.typecons : Tuple, Nullable;
 
 // ---------------------------------------------------------------------------
@@ -97,7 +100,8 @@ private template isBindableType(T)
         || is(T == class)
         || isDynamicArray!T
         || isAssociativeArray!T
-        || isInstanceOf!(Nullable, T);
+        || isInstanceOf!(Nullable, T)
+        || is(Unqual!T == struct);
 }
 
 private template isBindableReturn(T)
@@ -209,6 +213,12 @@ private bool luaArgMatches(T)(LuaState state, int idx)
         if (t != LUA_TUSERDATA)
             return false;
         return LuaClass!T.isInstance(state, idx);
+    }
+    else static if (is(Unqual!T == struct))
+    {
+        if (t != LUA_TUSERDATA)
+            return false;
+        return LuaStruct!(Unqual!T).isInstance(state, idx);
     }
     else
         return false;
@@ -631,7 +641,7 @@ private extern(C) int classToString(T)(lua_State* L) nothrow
 {
     try
     {
-        T self = *cast(T*) lua_touserdata(L, 1);
+        auto self = cast(T*) lua_touserdata(L, 1);
         auto s = self.toString();
         if (s is null)
             s = "";
@@ -649,11 +659,11 @@ private extern(C) int classLen(T)(lua_State* L) nothrow
 {
     try
     {
-        T self = *cast(T*) lua_touserdata(L, 1);
+        auto self = cast(T*) lua_touserdata(L, 1);
         static if (isField!(T, "length"))
-            auto len = __traits(getMember, self, "length");
+            auto len = __traits(getMember, *self, "length");
         else
-            auto len = __traits(getMember, self, "length")();
+            auto len = __traits(getMember, *self, "length")();
         lua_pushinteger(L, cast(lua_Integer) len);
         return 1;
     }
@@ -664,20 +674,36 @@ private extern(C) int classLen(T)(lua_State* L) nothrow
     }
 }
 
+private bool bindableIsInstance(T)(LuaState state, int idx)
+{
+    static if (is(T == class))
+        return LuaClass!T.isInstance(state, idx);
+    else
+        return LuaStruct!T.isInstance(state, idx);
+}
+
+private T bindableGet(T)(LuaState state, int idx)
+{
+    static if (is(T == class))
+        return LuaClass!T.get(state, idx);
+    else
+        return LuaStruct!T.get(state, idx);
+}
+
 private extern(C) int classBinary(T, string op)(lua_State* L) nothrow
 {
     try
     {
         auto state = LuaState.wrap(L);
-        if (!LuaClass!T.isInstance(state, 1) || !LuaClass!T.isInstance(state, 2))
+        if (!bindableIsInstance!T(state, 1) || !bindableIsInstance!T(state, 2))
         {
             auto msg = "operator " ~ op ~ " expects two " ~ T.stringof ~ " operands";
             lua_pushlstring(L, msg.ptr, msg.length);
             return lua_error(L);
         }
 
-        T self = LuaClass!T.get(state, 1);
-        T other = LuaClass!T.get(state, 2);
+        T self = bindableGet!T(state, 1);
+        T other = bindableGet!T(state, 2);
         pushTo(state, self.opBinary!op(other));
         return 1;
     }
@@ -693,14 +719,14 @@ private extern(C) int classUnary(T, string op)(lua_State* L) nothrow
     try
     {
         auto state = LuaState.wrap(L);
-        if (!LuaClass!T.isInstance(state, 1))
+        if (!bindableIsInstance!T(state, 1))
         {
             auto msg = "operator " ~ op ~ " expects a " ~ T.stringof ~ " operand";
             lua_pushlstring(L, msg.ptr, msg.length);
             return lua_error(L);
         }
 
-        T self = LuaClass!T.get(state, 1);
+        T self = bindableGet!T(state, 1);
         pushTo(state, self.opUnary!op());
         return 1;
     }
@@ -716,15 +742,15 @@ private extern(C) int classCompare(T, bool inclusive)(lua_State* L) nothrow
     try
     {
         auto state = LuaState.wrap(L);
-        if (!LuaClass!T.isInstance(state, 1) || !LuaClass!T.isInstance(state, 2))
+        if (!bindableIsInstance!T(state, 1) || !bindableIsInstance!T(state, 2))
         {
             auto msg = "comparison expects two " ~ T.stringof ~ " operands";
             lua_pushlstring(L, msg.ptr, msg.length);
             return lua_error(L);
         }
 
-        T self = LuaClass!T.get(state, 1);
-        T other = LuaClass!T.get(state, 2);
+        T self = bindableGet!T(state, 1);
+        T other = bindableGet!T(state, 2);
         auto cmp = self.opCmp(other);
         static if (inclusive)
             lua_pushboolean(L, cmp <= 0 ? 1 : 0);
@@ -784,7 +810,133 @@ private void pushClassEq(lua_State* L)
     lua_setfield(L, LUA_REGISTRYINDEX, "__lunarbind_class_eq");
 }
 
-private bool tryIndexGet(T, alias F)(LuaState state, T self, bool strictKey)
+// ---------------------------------------------------------------------------
+// Struct boxes
+// ---------------------------------------------------------------------------
+
+private template structMetaName(S)
+{
+    enum string structMetaName = "lunarbind.struct." ~ fullyQualifiedName!S;
+}
+
+private template structEqualityBindable(S)
+{
+    static if (__traits(compiles, S.init == S.init))
+        enum structEqualityBindable = true;
+    else
+        enum structEqualityBindable = false;
+}
+
+// Conservative compile-time scan used to decide whether a struct box must be
+// registered as a GC root range.
+private template hasDPointers(T)
+{
+    static if (is(Unqual!T == class) || is(Unqual!T == interface)
+               || isDynamicArray!(Unqual!T) || isAssociativeArray!(Unqual!T)
+               || isPointer!(Unqual!T) || is(Unqual!T == delegate)
+               || is(Unqual!T == function))
+        enum hasDPointers = true;
+    else static if (isStaticArray!(Unqual!T))
+        enum hasDPointers = hasDPointers!(typeof(T.init[0]));
+    else static if (is(Unqual!T == struct))
+        enum hasDPointers = anyPointerField!(FieldTypeTuple!(Unqual!T));
+    else
+        enum hasDPointers = false;
+}
+
+private template anyPointerField(Fields...)
+{
+    static if (Fields.length == 0)
+        enum anyPointerField = false;
+    else
+        enum anyPointerField =
+            hasDPointers!(Fields[0]) || anyPointerField!(Fields[1 .. $]);
+}
+
+// Struct boxes live in Lua-allocated memory, which the D GC does not scan.
+// Register the box as a root range while Lua owns it so contained class
+// references, arrays and delegates stay alive.
+private extern(C) int structGc(S)(lua_State* L) nothrow
+{
+    static if (hasDPointers!S)
+    {
+        auto p = lua_touserdata(L, 1);
+        if (p !is null)
+            GC.removeRange(p, S.sizeof);
+    }
+    return 0;
+}
+
+private extern(C) int structEq(S)(lua_State* L) nothrow
+{
+    try
+    {
+        auto a = cast(S*) lua_touserdata(L, 1);
+        auto b = cast(S*) lua_touserdata(L, 2);
+        bool eq = a !is null && b !is null && *a == *b;
+        lua_pushboolean(L, eq ? 1 : 0);
+        return 1;
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+private void ensureStructMetatable(S)(LuaState state)
+{
+    auto name = toStringz(structMetaName!S);
+    if (luaL_newmetatable(state.handle, name) != 0)
+    {
+        pushCFunction(state.handle, &structGc!S);
+        lua_setfield(state.handle, -2, "__gc");
+        pushCFunction(state.handle, &classIndex!S);
+        lua_setfield(state.handle, -2, "__index");
+        pushCFunction(state.handle, &classNewIndex!S);
+        lua_setfield(state.handle, -2, "__newindex");
+        static if (structEqualityBindable!S)
+        {
+            pushCFunction(state.handle, &structEq!S);
+            lua_setfield(state.handle, -2, "__eq");
+        }
+
+        static if (toStringBindable!S)
+        {
+            pushCFunction(state.handle, &classToString!S);
+            lua_setfield(state.handle, -2, "__tostring");
+        }
+        static if (lengthBindable!S)
+        {
+            pushCFunction(state.handle, &classLen!S);
+            lua_setfield(state.handle, -2, "__len");
+        }
+
+        setBinaryOperator!(S, "+", "__add")(state.handle);
+        setBinaryOperator!(S, "-", "__sub")(state.handle);
+        setBinaryOperator!(S, "*", "__mul")(state.handle);
+        setBinaryOperator!(S, "/", "__div")(state.handle);
+        setBinaryOperator!(S, "%", "__mod")(state.handle);
+        setBinaryOperator!(S, "^^", "__pow")(state.handle);
+        setBinaryOperator!(S, "~", "__concat")(state.handle);
+        setBinaryOperator!(S, "&", "__band")(state.handle);
+        setBinaryOperator!(S, "|", "__bor")(state.handle);
+        setBinaryOperator!(S, "^", "__bxor")(state.handle);
+        setBinaryOperator!(S, "<<", "__shl")(state.handle);
+        setBinaryOperator!(S, ">>", "__shr")(state.handle);
+        setUnaryOperator!(S, "-", "__unm")(state.handle);
+        setUnaryOperator!(S, "~", "__bnot")(state.handle);
+        setCompareOperator!(S, false)(state.handle);
+        setCompareOperator!(S, true)(state.handle);
+        static if (methodBindable!(S, "opCall"))
+        {
+            pushCFunction(state.handle, &methodThunk!(S, "opCall"));
+            lua_setfield(state.handle, -2, "__call");
+        }
+    }
+}
+
+private bool tryIndexGet(T, alias F)(LuaState state, T* self, bool strictKey)
 {
     alias Params = Parameters!F;
     alias K = Unqual!(Params[0]);
@@ -799,7 +951,7 @@ private bool tryIndexGet(T, alias F)(LuaState state, T self, bool strictKey)
     return true;
 }
 
-private bool tryIndexSet(T, alias F)(LuaState state, T self, bool strictKey)
+private bool tryIndexSet(T, alias F)(LuaState state, T* self, bool strictKey)
 {
     alias Params = Parameters!F;
     alias V = Unqual!(Params[0]);
@@ -821,7 +973,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
     try
     {
         auto state = LuaState.wrap(L);
-        T self = *cast(T*) lua_touserdata(L, 1);
+        auto self = cast(T*) lua_touserdata(L, 1);
 
         // Only string keys can name fields/methods. Check the type first so
         // numeric and other keys stay intact instead of being coerced by
@@ -840,7 +992,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
                     {
                         if (key == member)
                         {
-                            pushTo(state, __traits(getMember, self, member)());
+                            pushTo(state, __traits(getMember, *self, member)());
                             return 1;
                         }
                     }
@@ -848,7 +1000,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
                     {
                         if (key == member)
                         {
-                            pushTo(state, __traits(getMember, self, member));
+                            pushTo(state, __traits(getMember, *self, member));
                             return 1;
                         }
                     }
@@ -897,7 +1049,7 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
     try
     {
         auto state = LuaState.wrap(L);
-        T self = *cast(T*) lua_touserdata(L, 1);
+        auto self = cast(T*) lua_touserdata(L, 1);
 
         if (lua_type(L, 2) == LUA_TSTRING)
         {
@@ -917,7 +1069,7 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
                             alias SetterParams = Parameters!Setter;
                             alias PT = Unqual!(SetterParams[0]);
                             auto value = popFrom!PT(state, 3);
-                            __traits(getMember, self, member)(value);
+                            __traits(getMember, *self, member)(value);
                             return 0;
                         }
                     }
@@ -926,7 +1078,7 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
                         if (key == member)
                         {
                             alias FT = Unqual!(fieldType!(T, member));
-                            __traits(getMember, self, member) = popFrom!FT(state, 3);
+                            __traits(getMember, *self, member) = popFrom!FT(state, 3);
                             return 0;
                         }
                     }
@@ -1021,7 +1173,7 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
     try
     {
         auto state = LuaState.wrap(L);
-        T self = *cast(T*) lua_touserdata(L, 1);
+        auto self = cast(T*) lua_touserdata(L, 1);
         auto nargs = cast(size_t)(lua_gettop(L) - 1);
 
         static foreach (i, Method; __traits(getOverloads, T, member))
@@ -1037,12 +1189,12 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
 
                     static if (is(ReturnType!Method == void))
                     {
-                        __traits(getMember, self, member)(args.expand);
+                        __traits(getMember, *self, member)(args.expand);
                         return 0;
                     }
                     else
                     {
-                        pushTo(state, __traits(getMember, self, member)(args.expand));
+                        pushTo(state, __traits(getMember, *self, member)(args.expand));
                         return 1;
                     }
                 }
@@ -1263,5 +1415,72 @@ struct LuaClass(T)
             raw.pop(state.handle, 1);
         }
         // luaL_newmetatable leaves the metatable on the stack.
+    }
+}
+
+/// Bind a D struct to Lua as a mutable box.
+///
+/// Lua holds an independent copy of the struct in userdata. While that box is
+/// reachable, field writes and mutating methods from Lua persist and are
+/// visible to subsequent reads. Pushing the same D value again creates a new
+/// box; there is no struct identity. Reading a struct-valued field of a class
+/// pushes a copy, so mutating that copy does not write back to the class field.
+struct LuaStruct(S)
+    if (is(S == struct))
+{
+    /// Push `value` as a full userdata box.
+    static void push(T)(LuaState state, T value)
+        if (is(Unqual!T == S))
+    {
+        auto L = state.handle;
+        ensureStructMetatable!S(state);      // [meta]
+        auto p = cast(S*) raw.newUserdata(L, S.sizeof);
+        *p = cast(S) value;
+        static if (hasDPointers!S)
+            GC.addRange(p, S.sizeof);
+
+        lua_pushvalue(L, -2);                // [meta, userdata, meta]
+        lua_setmetatable(L, -2);             // [meta, userdata]
+        raw.remove(L, -2);                   // [userdata]
+    }
+
+    /// Read a struct value from a boxed userdata at `idx` (by copy).
+    static S get(LuaState state, int idx)
+    {
+        if (!isInstance(state, idx))
+            throw new LuaTypeException("expected userdata of type " ~ S.stringof);
+        return *cast(S*) lua_touserdata(state.handle, idx);
+    }
+
+    /// Push a global variable and register it under `name`.
+    static void setGlobal(T)(LuaState state, string name, T value)
+        if (is(Unqual!T == S))
+    {
+        push(state, value);
+        raw.setGlobal(state.handle, toStringz(name));
+    }
+
+    /// Read a global variable as a struct value (S.init if nil).
+    static S getGlobal(LuaState state, string name)
+    {
+        raw.getGlobal(state.handle, toStringz(name));
+        scope(exit) raw.pop(state.handle, 1);
+        if (lua_type(state.handle, -1) == LUA_TNIL)
+            return S.init;
+        return get(state, -1);
+    }
+
+    /// Check whether the value at `idx` is a box of this struct type.
+    static bool isInstance(LuaState state, int idx)
+    {
+        idx = raw.absIndex(state.handle, idx);
+        if (lua_type(state.handle, idx) != LUA_TUSERDATA)
+            return false;
+
+        StackGuard guard = StackGuard(state);
+        ensureStructMetatable!S(state); // [meta]
+        if (lua_getmetatable(state.handle, idx) == 0)
+            return false;
+        return lua_rawequal(state.handle, -1, -2) != 0;
     }
 }

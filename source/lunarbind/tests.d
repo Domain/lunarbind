@@ -4,6 +4,8 @@ module lunarbind.tests;
 
 import lunarbind;
 
+import std.conv : to;
+
 class Player
 {
     int hp;
@@ -231,6 +233,66 @@ class Dict
     }
 }
 
+struct Point
+{
+    int x;
+    int y;
+
+    int sum() const
+    {
+        return x + y;
+    }
+
+    void move(int dx, int dy)
+    {
+        x += dx;
+        y += dy;
+    }
+
+    Point opBinary(string op)(Point other) const
+        if (op == "+" || op == "-")
+    {
+        static if (op == "+")
+            return Point(x + other.x, y + other.y);
+        else
+            return Point(x - other.x, y - other.y);
+    }
+
+    Point opUnary(string op)() const
+        if (op == "-")
+    {
+        return Point(-x, -y);
+    }
+
+    int opCmp(Point other) const
+    {
+        return x < other.x ? -1 : x > other.x ? 1 : 0;
+    }
+
+    string toString() const
+    {
+        return "Point(" ~ to!string(x) ~ "," ~ to!string(y) ~ ")";
+    }
+}
+
+class Geometry
+{
+    int sum(Point p) const
+    {
+        return p.x + p.y;
+    }
+
+    Point make(int x, int y)
+    {
+        return Point(x, y);
+    }
+}
+
+class HasPoint
+{
+    Point point;
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -425,6 +487,70 @@ unittest
     assert(asInt(indexResult[1]) == 9);
     assert(dict.named.length == 1 && "seed" in dict.named);
     assert(dict.indexed.length == 1 && 7 in dict.indexed);
+
+    // Structs are boxed as mutable userdata. Lua field writes and mutating
+    // methods persist in the box, while the D value passed to push is copied.
+    auto point = Point(1, 2);
+    auto point2 = Point(1, 2);
+    auto point3 = Point(9, 9);
+    auto point4 = Point(11, 4);
+    LuaStruct!Point.setGlobal(L, "point", point);
+    LuaStruct!Point.setGlobal(L, "point2", point2);
+    LuaStruct!Point.setGlobal(L, "point3", point3);
+    LuaStruct!Point.setGlobal(L, "point4", point4);
+    auto structResult = L.eval("
+        assert(point.x == 1 and point.y == 2)
+        point.x = 10
+        point:move(1, 2)
+        assert(point.x == 11 and point.y == 4)
+        assert(point:sum() == 15)
+        assert(tostring(point) == 'Point(11,4)')
+        assert(point == point4)
+        assert(point ~= point2)
+        local sum = point + point2
+        local diff = point - point2
+        local neg = -point
+        assert(sum.x == 12 and sum.y == 6)
+        assert(diff.x == 10 and diff.y == 2)
+        assert(neg.x == -11 and neg.y == -4)
+        assert(point2 < point3)
+        assert(point2 <= point)
+        return point.x, point.y, sum.x, sum.y
+    ");
+    assert(asInt(structResult[0]) == 11);
+    assert(asInt(structResult[1]) == 4);
+    assert(asInt(structResult[2]) == 12);
+    assert(asInt(structResult[3]) == 6);
+    assert(point.x == 1 && point.y == 2); // pushing copied the D value
+
+    auto readBack = LuaStruct!Point.getGlobal(L, "point");
+    assert(readBack.x == 11 && readBack.y == 4);
+
+    // Const/immutable structs are copied into a mutable box.
+    immutable Point frozen = Point(5, 6);
+    LuaStruct!Point.setGlobal(L, "frozen", frozen);
+    auto frozenResult = L.eval("return frozen.x, frozen.y");
+    assert(asInt(frozenResult[0]) == 5);
+    assert(asInt(frozenResult[1]) == 6);
+
+    // Structs cross the boundary as method parameters and results.
+    auto geometry = new Geometry;
+    LuaClass!Geometry.setGlobal(L, "geometry", geometry);
+    auto geometryResult = L.eval("
+        assert(geometry:sum(point) == 15)
+        local made = geometry:make(7, 8)
+        assert(made.x == 7 and made.y == 8)
+        return made.x, made.y
+    ");
+    assert(asInt(geometryResult[0]) == 7);
+    assert(asInt(geometryResult[1]) == 8);
+
+    // Struct-valued class fields can be read and assigned as boxes.
+    auto holder = new HasPoint;
+    holder.point = Point(3, 4);
+    LuaClass!HasPoint.setGlobal(L, "holder", holder);
+    L.doString("assert(holder.point.x == 3); holder.point = point2");
+    assert(holder.point.x == 1 && holder.point.y == 2);
 
     // Constructor arity errors surface as Lua errors.
     bool ctorFailed;

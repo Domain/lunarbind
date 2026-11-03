@@ -23,6 +23,18 @@ class Counter
     }
 }
 
+struct Vec2
+{
+    double x;
+    double y;
+
+    void scale(double factor)
+    {
+        x *= factor;
+        y *= factor;
+    }
+}
+
 int greeter(string name)
 {
     writeln("hello, ", name);
@@ -51,5 +63,14 @@ void main()
         made:add(3)
         assert(made:get() == 5)
     `);
+
+    auto vec = Vec2(1.5, 2.5);
+    LuaStruct!Vec2.setGlobal(L, "vec", vec);
+    L.doString(`
+        vec.x = 2.5
+        vec:scale(2)
+        assert(vec.x == 5 and vec.y == 5)
+    `);
+    assert(vec.x == 1.5); // Lua mutated only the boxed copy
 }
 

@@ -16,7 +16,7 @@ import lunarbind.table : LuaTable;
 import lunarbind.function_ : LuaFunction;
 
 import std.traits : isIntegral, isFloatingPoint, isDynamicArray,
-                    isAssociativeArray, isSomeString, KeyType, ValueType, isPointer, isInstanceOf;
+                    isAssociativeArray, isSomeString, KeyType, ValueType, isPointer, isInstanceOf, Unqual;
 import std.typecons : Nullable;
 import std.meta : AliasSeq;
 
@@ -104,6 +104,12 @@ void pushTo(T)(LuaState L, auto ref T value)
             pushTo(L, v);
             lua_rawset(L.handle, -3);
         }
+    }
+    else static if (is(Unqual!T == struct))
+    {
+        import lunarbind.object : LuaStruct;
+        alias S = Unqual!T;
+        LuaStruct!S.push(L, cast(S) value);
     }
     else
     {
@@ -241,6 +247,11 @@ T popFrom(T)(LuaState L, int idx)
             return null;
         import lunarbind.object : LuaClass;
         return LuaClass!T.get(L, idx);
+    }
+    else static if (is(Unqual!T == struct))
+    {
+        import lunarbind.object : LuaStruct;
+        return cast(T) LuaStruct!(Unqual!T).get(L, idx);
     }
     else
     {

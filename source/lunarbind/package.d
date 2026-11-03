@@ -6,6 +6,7 @@
 ///   - `LuaValue` dynamic value
 ///   - `pushTo` / `popFrom` conversion functions
 ///   - `LuaClass!T` D-class <-> Lua userdata binding
+///   - `LuaStruct!S` D-struct <-> mutable Lua userdata box binding
 ///   - `registerFunction` / `registerLibrary` callback registration
 module lunarbind;
 
