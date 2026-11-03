@@ -5,6 +5,7 @@
 ///   - `LuaTable` / `LuaFunction` typed handles
 ///   - `LuaValue` dynamic value
 ///   - `pushTo` / `popFrom` conversion functions
+///   - D `Tuple` results expand into multiple Lua return values
 ///   - `LuaClass!T` D-class <-> Lua userdata binding
 ///   - `LuaStruct!S` D-struct <-> mutable Lua userdata box binding
 ///   - `registerFunction` / `registerLibrary` callback registration

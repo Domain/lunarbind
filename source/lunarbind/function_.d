@@ -13,7 +13,7 @@ import core.memory : GC;
 import std.meta : AliasSeq;
 import std.string : toStringz;
 import std.traits : Parameters, ReturnType, isSomeFunction,
-                    variadicFunctionStyle, Variadic;
+                    variadicFunctionStyle, Variadic, isInstanceOf, Unqual;
 import std.typecons : Tuple;
 
 // ---------------------------------------------------------------------------
@@ -35,8 +35,8 @@ struct LuaFunction
     void pushInto(LuaState target) { _ref.pushInto(target); }
 
     /// Call the function. `T` defaults to `LuaValue`; use `call!int` etc. for
-    /// a typed result, `call!void` to discard results, or `call!(LuaValue[])`
-    /// to collect all results.
+    /// a typed result, `call!void` to discard results, `call!(LuaValue[])` to
+    /// collect all results, or a `Tuple` to collect several typed results.
     T call(T = LuaValue, Args...)(Args args)
     {
         auto s = state();
@@ -52,6 +52,8 @@ struct LuaFunction
             enum int nresults = 0;
         else static if (is(T == LuaValue[]))
             enum int nresults = LUA_MULTRET;
+        else static if (isInstanceOf!(Tuple, Unqual!T))
+            enum int nresults = cast(int) Unqual!T.length;
         else
             enum int nresults = 1;
 
@@ -73,6 +75,14 @@ struct LuaFunction
             LuaValue[] result;
             foreach (i; base + 1 .. s.top() + 1)
                 result ~= LuaValue.fromStack(s, i);
+            return result;
+        }
+        else static if (isInstanceOf!(Tuple, Unqual!T))
+        {
+            alias R = Unqual!T;
+            R result;
+            static foreach (i, E; R.Types)
+                result.expand[i] = popFrom!(Unqual!E)(s, base + 1 + cast(int) i);
             return result;
         }
         else
@@ -162,8 +172,7 @@ private int invokeAlias(alias F)(LuaState state)
     }
     else
     {
-        pushTo(state, F(args.expand));
-        return 1;
+        return pushCallResult(state, F(args.expand));
     }
 }
 
@@ -181,8 +190,7 @@ private int invokeValue(Dg)(LuaState state, Dg callable)
     }
     else
     {
-        pushTo(state, callable(args.expand));
-        return 1;
+        return pushCallResult(state, callable(args.expand));
     }
 }
 

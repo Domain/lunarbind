@@ -17,7 +17,8 @@
 /// - D structs are boxed as mutable userdata (`LuaStruct!S`); field writes and
 ///   mutating methods persist while Lua holds the box.
 /// - Omitted trailing arguments take their D default values; D typesafe
-///   variadics collect the argument tail into an array.
+///   variadics collect the argument tail into an array; a `std.typecons.Tuple`
+///   result expands into multiple Lua return values.
 /// - C-style and D-style variadics remain unsupported.
 module lunarbind.object;
 
@@ -1230,8 +1231,8 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
                     }
                     else
                     {
-                        pushTo(state, __traits(getMember, *self, member)(args.expand));
-                        return 1;
+                        return pushCallResult(
+                            state, __traits(getMember, *self, member)(args.expand));
                     }
                 }
             }

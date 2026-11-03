@@ -176,8 +176,9 @@ metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
 `__call` from `opCall`; `__index`/`__newindex` falling back to
 `opIndex`/`opIndexAssign`; D structs boxed as mutable userdata (`LuaStruct!S`)
 with field access, methods and operators; omitted trailing parameters filled
-from D default arguments; D typesafe variadics collected into an array;
-weak-key/weak-value tables (`LuaWeakness`); `__gc`; `__eq`; D → Lua and Lua → D
+from D default arguments; D typesafe variadics collected into an array; D
+`Tuple` results expanded into multiple Lua returns; weak-key/weak-value tables
+(`LuaWeakness`); `__gc`; `__eq`; D → Lua and Lua → D
 identity; weak-value identity tables so repeated pushes reuse the same userdata;
 reference-counted GC roots across states and class views.
 
@@ -188,8 +189,8 @@ rather than half-implemented.
 
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
-2. **Functions**: `LuaState` injection, tuple returns, user-defined codecs
-   (`LuaCodec`), coroutine wrappers.
+2. **Functions**: `LuaState` injection, user-defined codecs (`LuaCodec`),
+   coroutine wrappers.
 3. **Tooling**: `@LuaExport`/module builder as a single source for registration
    and EmmyLua output, benchmarks, docs.
 4. **Lua 5.5** binding profile.

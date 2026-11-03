@@ -5,6 +5,7 @@ module lunarbind.tests;
 import lunarbind;
 
 import std.conv : to;
+import std.typecons : Tuple, tuple;
 
 class Player
 {
@@ -326,6 +327,14 @@ class Defaults
     }
 }
 
+class Splitter
+{
+    Tuple!(int, int) digits(int value) const
+    {
+        return tuple(value / 10, value % 10);
+    }
+}
+
 class Variadic
 {
     int total(int[] values...) const
@@ -385,6 +394,11 @@ string joinVariadic(string separator, string[] parts...)
         result ~= part;
     }
     return result;
+}
+
+Tuple!(int, string) describe(int value)
+{
+    return tuple(value * 2, "v" ~ to!string(value));
 }
 
 // Filled from a Lua callback; must stay valid after the callback returns.
@@ -520,6 +534,19 @@ unittest
         extraArgFailed = true;
     assert(extraArgFailed);
 
+    // D Tuple results become multiple Lua return values.
+    registerFunction!describe(L, "describe");
+    auto described = L.eval("return describe(21)");
+    assert(asInt(described[0]) == 42);
+    assert(described[1].stringValue == "v21");
+
+    // Lua multiple returns can be collected into a D Tuple.
+    auto multiReturn = L.loadString("return 7, 'x', true");
+    auto tupleResult = multiReturn.call!(Tuple!(int, string, bool))();
+    assert(tupleResult[0] == 7);
+    assert(tupleResult[1] == "x");
+    assert(tupleResult[2]);
+
     // library
     registerLibrary!("add", add, "sub", sub)(L, "mathx");
     assert(asInt(L.eval("return mathx.add(10, 32)")[0]) == 42);
@@ -629,6 +656,13 @@ unittest
     ");
     assert(asInt(variadicResult[0]) == 9);
     assert(variadicResult[1].stringValue == "x");
+
+    // Methods can return tuples as well.
+    auto splitter = new Splitter;
+    LuaClass!Splitter.setGlobal(L, "splitter", splitter);
+    auto splitResult = L.eval("return splitter:digits(42)");
+    assert(asInt(splitResult[0]) == 4);
+    assert(asInt(splitResult[1]) == 2);
 
     // D toString and length integrate with Lua's tostring and # operators.
     auto stringResult = L.eval("return tostring(player)");

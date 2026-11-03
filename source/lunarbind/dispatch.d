@@ -8,7 +8,7 @@ import lunarbind.state;
 import lunarbind.conv;
 
 import std.traits : Parameters, ParameterDefaults, variadicFunctionStyle,
-                    Variadic, Unqual;
+                    Variadic, Unqual, isInstanceOf;
 import std.typecons : Tuple;
 
 /// Number of parameters matched one-to-one with Lua arguments. A typesafe
@@ -51,6 +51,23 @@ package template typesafeVariadicElement(alias F)
 {
     alias P = Parameters!F[$ - 1];
     alias typesafeVariadicElement = Unqual!(typeof(P.init[0]));
+}
+
+/// Push a D call result onto the Lua stack. A `std.typecons.Tuple` becomes
+/// multiple Lua return values; any other value becomes one.
+package int pushCallResult(R)(LuaState state, auto ref R value)
+{
+    static if (isInstanceOf!(Tuple, Unqual!R))
+    {
+        static foreach (i; 0 .. Unqual!R.length)
+            pushTo(state, value[i]);
+        return cast(int) Unqual!R.length;
+    }
+    else
+    {
+        pushTo(state, value);
+        return 1;
+    }
 }
 
 /// Fill a tuple of D arguments from Lua stack slots starting at `startIdx`.
