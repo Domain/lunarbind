@@ -146,7 +146,7 @@ private void checkArity(alias F)(int given, LuaState state)
     }
     else
     {
-        enum fixed = fixedParamCount!F;
+        enum fixed = luaFixedCount!F;
         if (given < required || given > fixed)
         {
             auto msg = "expected between " ~ to!string(required)

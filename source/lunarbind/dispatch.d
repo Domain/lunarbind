@@ -21,16 +21,52 @@ package template fixedParamCount(alias F)
         enum fixedParamCount = Parameters!F.length;
 }
 
+/// A `LuaState` parameter is supplied by the wrapper, not by Lua.
+package template isInjectedParameter(T)
+{
+    enum isInjectedParameter = is(Unqual!T == LuaState);
+}
+
+/// Ordinal of parameter `i` among Lua-supplied (non-injected) parameters.
+package template luaParamOrdinal(alias F, size_t i)
+{
+    static if (i == 0)
+        enum luaParamOrdinal = 0;
+    else static if (isInjectedParameter!(Parameters!F[i - 1]))
+        enum luaParamOrdinal = luaParamOrdinal!(F, i - 1);
+    else
+        enum luaParamOrdinal = luaParamOrdinal!(F, i - 1) + 1;
+}
+
+private template countLuaParams(alias F, size_t n, size_t i = 0, size_t count = 0)
+{
+    static if (i == n)
+        enum countLuaParams = count;
+    else static if (isInjectedParameter!(Parameters!F[i]))
+        enum countLuaParams = countLuaParams!(F, n, i + 1, count);
+    else
+        enum countLuaParams = countLuaParams!(F, n, i + 1, count + 1);
+}
+
+/// Number of Lua-supplied parameters in the fixed (non-variadic) part.
+package template luaFixedCount(alias F)
+{
+    enum luaFixedCount = countLuaParams!(F, fixedParamCount!F);
+}
+
 /// Smallest acceptable Lua argument count, derived from D default arguments.
 /// Parameters before the last non-default parameter are required.
 package template requiredParamCount(alias F, size_t i = 0, size_t required = 0)
 {
     static if (i == fixedParamCount!F)
         enum requiredParamCount = required;
+    else static if (isInjectedParameter!(Parameters!F[i]))
+        enum requiredParamCount = requiredParamCount!(F, i + 1, required);
     else
     {
         static if (is(ParameterDefaults!F[i] == void))
-            enum requiredParamCount = requiredParamCount!(F, i + 1, i + 1);
+            enum requiredParamCount =
+                requiredParamCount!(F, i + 1, luaParamOrdinal!(F, i) + 1);
         else
             enum requiredParamCount = requiredParamCount!(F, i + 1, required);
     }
@@ -79,14 +115,17 @@ package void fillCallArgs(alias F)(LuaState state, ref Tuple!(Parameters!F) args
     enum fixed = fixedParamCount!F;
     static foreach (i, P; Parameters!F)
     {{
-        static if (i < fixed)
+        static if (isInjectedParameter!P)
+            args[i] = state;
+        else static if (i < fixed)
         {
-            static if (i < requiredParamCount!F)
-                args[i] = popFrom!(Unqual!P)(state, startIdx + cast(int) i);
+            enum p = luaParamOrdinal!(F, i);
+            static if (p < requiredParamCount!F)
+                args[i] = popFrom!(Unqual!P)(state, startIdx + cast(int) p);
             else
             {
-                if (i < nargs)
-                    args[i] = popFrom!(Unqual!P)(state, startIdx + cast(int) i);
+                if (p < nargs)
+                    args[i] = popFrom!(Unqual!P)(state, startIdx + cast(int) p);
                 else
                     args[i] = ParameterDefaults!F[i];
             }
@@ -94,11 +133,12 @@ package void fillCallArgs(alias F)(LuaState state, ref Tuple!(Parameters!F) args
         else
         {
             alias E = typesafeVariadicElement!F;
-            auto count = nargs - i;
+            enum p = luaParamOrdinal!(F, i);
+            auto count = nargs > p ? nargs - p : 0;
             E[] values;
             values.length = count;
             foreach (k; 0 .. count)
-                values[k] = popFrom!E(state, startIdx + cast(int)(i + k));
+                values[k] = popFrom!E(state, startIdx + cast(int)(p + k));
             args[i] = values;
         }
     }}

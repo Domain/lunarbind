@@ -18,7 +18,8 @@
 ///   mutating methods persist while Lua holds the box.
 /// - Omitted trailing arguments take their D default values; D typesafe
 ///   variadics collect the argument tail into an array; a `std.typecons.Tuple`
-///   result expands into multiple Lua return values.
+///   result expands into multiple Lua return values; a `LuaState` parameter is
+///   injected by the wrapper and consumes no Lua argument.
 /// - C-style and D-style variadics remain unsupported.
 module lunarbind.object;
 
@@ -246,22 +247,28 @@ private bool callMatches(alias F)(LuaState state, int startIdx, size_t nargs)
         }
         else
         {
-            if (nargs < requiredParamCount!F || nargs > fixed)
+            if (nargs < requiredParamCount!F || nargs > luaFixedCount!F)
                 return false;
         }
 
         static foreach (i, P; Parameters!F)
         {{
-            static if (i < fixed)
+            static if (isInjectedParameter!P)
             {
-                if (i < nargs
-                    && !luaArgMatches!(Unqual!P)(state, startIdx + cast(int) i))
+                // Supplied by the wrapper; consumes no Lua argument.
+            }
+            else static if (i < fixed)
+            {
+                enum p = luaParamOrdinal!(F, i);
+                if (p < nargs
+                    && !luaArgMatches!(Unqual!P)(state, startIdx + cast(int) p))
                     return false;
             }
             else
             {
                 alias E = typesafeVariadicElement!F;
-                foreach (k; i .. nargs)
+                enum p = luaParamOrdinal!(F, i);
+                foreach (k; p .. nargs)
                 {
                     if (!luaArgMatches!E(state, startIdx + cast(int) k))
                         return false;

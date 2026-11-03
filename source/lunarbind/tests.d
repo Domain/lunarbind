@@ -327,6 +327,29 @@ class Defaults
     }
 }
 
+class StateAware
+{
+    int total;
+
+    int accumulate(LuaState L, int value, int factor = 1)
+    {
+        total += value * factor;
+        L.setGlobal("state_aware_total", total);
+        return total;
+    }
+}
+
+class StateConstructed
+{
+    int value;
+
+    this(LuaState L, int value = 4)
+    {
+        this.value = value;
+        L.setGlobal("state_constructed", value);
+    }
+}
+
 class Splitter
 {
     Tuple!(int, int) digits(int value) const
@@ -399,6 +422,15 @@ string joinVariadic(string separator, string[] parts...)
 Tuple!(int, string) describe(int value)
 {
     return tuple(value * 2, "v" ~ to!string(value));
+}
+
+int stateSum(LuaState L, int base = 1, int[] values...)
+{
+    int result = base;
+    foreach (value; values)
+        result += value;
+    L.setGlobal("state_sum_result", result);
+    return result;
 }
 
 // Filled from a Lua callback; must stay valid after the callback returns.
@@ -547,6 +579,14 @@ unittest
     assert(tupleResult[1] == "x");
     assert(tupleResult[2]);
 
+    // A LuaState parameter is injected by the wrapper, not consumed from Lua.
+    registerFunction!stateSum(L, "state_sum");
+    auto stateSumResult = L.eval("return state_sum(), state_sum(10), state_sum(10, 1, 2)");
+    assert(asInt(stateSumResult[0]) == 1);
+    assert(asInt(stateSumResult[1]) == 10);
+    assert(asInt(stateSumResult[2]) == 13);
+    assert(L.getGlobal!int("state_sum_result") == 13);
+
     // library
     registerLibrary!("add", add, "sub", sub)(L, "mathx");
     assert(asInt(L.eval("return mathx.add(10, 32)")[0]) == 42);
@@ -663,6 +703,27 @@ unittest
     auto splitResult = L.eval("return splitter:digits(42)");
     assert(asInt(splitResult[0]) == 4);
     assert(asInt(splitResult[1]) == 2);
+
+    // Injected state works for methods and constructors, with defaults.
+    auto stateAware = new StateAware;
+    LuaClass!StateAware.setGlobal(L, "stateAware", stateAware);
+    auto stateAwareResult = L.eval("
+        assert(stateAware:accumulate(2) == 2)
+        assert(stateAware:accumulate(3, 2) == 8)
+        return stateAware.total
+    ");
+    assert(asInt(stateAwareResult[0]) == 8);
+    assert(L.getGlobal!int("state_aware_total") == 8);
+
+    LuaClass!StateConstructed.registerConstructor(L, "StateConstructed");
+    auto stateConstructedResult = L.eval("
+        local made = StateConstructed()
+        local custom = StateConstructed(9)
+        return made.value, custom.value
+    ");
+    assert(asInt(stateConstructedResult[0]) == 4);
+    assert(asInt(stateConstructedResult[1]) == 9);
+    assert(L.getGlobal!int("state_constructed") == 9);
 
     // D toString and length integrate with Lua's tostring and # operators.
     auto stringResult = L.eval("return tostring(player)");
