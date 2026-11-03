@@ -243,6 +243,19 @@ struct Point
         return x + y;
     }
 
+    int scaled(int factor = 1) const
+    {
+        return (x + y) * factor;
+    }
+
+    int plus(int[] extra...) const
+    {
+        int result = x + y;
+        foreach (value; extra)
+            result += value;
+        return result;
+    }
+
     void move(int dx, int dy)
     {
         x += dx;
@@ -293,6 +306,57 @@ class HasPoint
     Point point;
 }
 
+class Defaults
+{
+    int base;
+
+    this(int base = 5)
+    {
+        this.base = base;
+    }
+
+    int total(int a, int b = 2, int c = 3) const
+    {
+        return base + a + b + c;
+    }
+
+    string tag(string prefix = "v", int n = 1) const
+    {
+        return prefix ~ to!string(n);
+    }
+}
+
+class Variadic
+{
+    int total(int[] values...) const
+    {
+        int result;
+        foreach (v; values)
+            result += v;
+        return result;
+    }
+
+    string join(string separator, string[] parts...) const
+    {
+        string result;
+        foreach (i, part; parts)
+        {
+            if (i > 0)
+                result ~= separator;
+            result ~= part;
+        }
+        return result;
+    }
+
+    int offset(int base, int[] values...) const
+    {
+        int result = base;
+        foreach (v; values)
+            result += v;
+        return result;
+    }
+}
+
 int asInt(LuaValue v)
 {
     return v.kind == LuaType.integer ? cast(int) v.integerValue : cast(int) v.numberValue;
@@ -300,6 +364,28 @@ int asInt(LuaValue v)
 
 int add(int a, int b) { return a + b; }
 int sub(int a, int b) { return a - b; }
+
+int addDefault(int a, int b = 10) { return a + b; }
+
+int sumVariadic(int[] values...)
+{
+    int result;
+    foreach (value; values)
+        result += value;
+    return result;
+}
+
+string joinVariadic(string separator, string[] parts...)
+{
+    string result;
+    foreach (i, part; parts)
+    {
+        if (i > 0)
+            result ~= separator;
+        result ~= part;
+    }
+    return result;
+}
 
 // Filled from a Lua callback; must stay valid after the callback returns.
 LuaTable capturedTable;
@@ -353,6 +439,29 @@ unittest
     // compile-time lambda
     registerFunction!((int x) { return x + 1; })(L, "inc");
     assert(asInt(L.eval("return inc(41)")[0]) == 42);
+
+    // Free functions accept omitted defaults and typesafe variadic tails.
+    registerFunction!addDefault(L, "add_default");
+    registerFunction!sumVariadic(L, "sum_variadic");
+    registerFunction!joinVariadic(L, "join_variadic");
+    auto functionShape = L.eval("
+        return add_default(1), add_default(1, 2),
+               sum_variadic(), sum_variadic(1, 2, 3),
+               join_variadic('-', 'a', 'b', 'c')
+    ");
+    assert(asInt(functionShape[0]) == 11);
+    assert(asInt(functionShape[1]) == 3);
+    assert(asInt(functionShape[2]) == 0);
+    assert(asInt(functionShape[3]) == 6);
+    assert(functionShape[4].stringValue == "a-b-c");
+
+    // Extra arguments beyond the declared fixed parameters are rejected.
+    bool extraArgFailed;
+    try
+        L.eval("add(1, 2, 3)");
+    catch (LuaException e)
+        extraArgFailed = true;
+    assert(extraArgFailed);
 
     // library
     registerLibrary!("add", add, "sub", sub)(L, "mathx");
@@ -432,6 +541,38 @@ unittest
     assert(overloaded[4].stringValue == "string");
     assert(overloaded[5].stringValue == "pair");
 
+    // Omitted trailing arguments take their D default values, for
+    // constructors and methods alike.
+    auto defaults = new Defaults;
+    LuaClass!Defaults.registerConstructor(L, "Defaults");
+    LuaClass!Defaults.setGlobal(L, "defaults", defaults);
+    auto defaultResult = L.eval("
+        local made = Defaults()
+        local custom = Defaults(10)
+        assert(defaults:total(1) == 11)
+        assert(defaults:total(1, 10) == 19)
+        assert(defaults:total(1, 10, 20) == 36)
+        assert(defaults:tag() == 'v1')
+        assert(custom:tag('x', 3) == 'x3')
+        return made.base, custom.base, defaults:total(2)
+    ");
+    assert(asInt(defaultResult[0]) == 5);
+    assert(asInt(defaultResult[1]) == 10);
+    assert(asInt(defaultResult[2]) == 12);
+
+    // D typesafe variadics collect the remaining Lua arguments.
+    auto variadic = new Variadic;
+    LuaClass!Variadic.setGlobal(L, "variadic", variadic);
+    auto variadicResult = L.eval("
+        assert(variadic:total() == 0)
+        assert(variadic:total(1, 2, 3) == 6)
+        assert(variadic:join('-', 'a', 'b', 'c') == 'a-b-c')
+        assert(variadic:offset(10, 1, 2) == 13)
+        return variadic:total(4, 5), variadic:join(',', 'x')
+    ");
+    assert(asInt(variadicResult[0]) == 9);
+    assert(variadicResult[1].stringValue == "x");
+
     // D toString and length integrate with Lua's tostring and # operators.
     auto stringResult = L.eval("return tostring(player)");
     assert(stringResult[0].stringValue == "Player:bob");
@@ -504,6 +645,9 @@ unittest
         point:move(1, 2)
         assert(point.x == 11 and point.y == 4)
         assert(point:sum() == 15)
+        assert(point:scaled() == 15)
+        assert(point:scaled(2) == 30)
+        assert(point:plus(1, 2) == 18)
         assert(tostring(point) == 'Point(11,4)')
         assert(point == point4)
         assert(point ~= point2)

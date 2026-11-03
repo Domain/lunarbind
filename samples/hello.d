@@ -35,10 +35,18 @@ struct Vec2
     }
 }
 
-int greeter(string name)
+int greeter(string name = "world")
 {
     writeln("hello, ", name);
     return 1;
+}
+
+int sum(int[] values...)
+{
+    int total;
+    foreach (value; values)
+        total += value;
+    return total;
 }
 
 void main()
@@ -46,7 +54,12 @@ void main()
     auto L = LuaState.open();
 
     registerFunction!greeter(L, "greet");
-    L.doString(`greet("world")`);
+    registerFunction!sum(L, "sum");
+    L.doString(`
+        greet("world")
+        greet()
+        assert(sum(1, 2, 3) == 6)
+    `);
 
     auto counter = new Counter(10);
     LuaClass!Counter.registerClass(L);

@@ -16,7 +16,9 @@
 ///   string keys still resolve fields, properties and methods first.
 /// - D structs are boxed as mutable userdata (`LuaStruct!S`); field writes and
 ///   mutating methods persist while Lua holds the box.
-/// - Default arguments and varargs are future work.
+/// - Omitted trailing arguments take their D default values; D typesafe
+///   variadics collect the argument tail into an array.
+/// - C-style and D-style variadics remain unsupported.
 module lunarbind.object;
 
 import lunarbind.raw;
@@ -25,6 +27,7 @@ import lunarbind.state;
 import lunarbind.types;
 import lunarbind.value;
 import lunarbind.conv;
+import lunarbind.dispatch;
 import lunarbind.table : LuaTable;
 import lunarbind.function_;
 
@@ -35,7 +38,7 @@ import std.traits : fullyQualifiedName, Parameters, ReturnType, isIntegral,
                     isFloatingPoint, isSomeString, isDynamicArray,
                     isAssociativeArray, isInstanceOf, functionAttributes,
                     FunctionAttribute, BaseClassesTuple, Unqual, FieldTypeTuple,
-                    isStaticArray, isPointer;
+                    isStaticArray, isPointer, variadicFunctionStyle, Variadic;
 import std.typecons : Tuple, Nullable;
 
 // ---------------------------------------------------------------------------
@@ -118,7 +121,9 @@ private template overloadBindable(alias Method)
                && __traits(compiles, ReturnType!Method)
                && isPublicOverload!Method)
         enum overloadBindable =
-            allBindable!(Parameters!Method) && isBindableReturn!(ReturnType!Method);
+            allBindable!(Parameters!Method)
+            && isBindableReturn!(ReturnType!Method)
+            && bindableVariadic!Method;
     else
         enum overloadBindable = false;
 }
@@ -224,16 +229,46 @@ private bool luaArgMatches(T)(LuaState state, int idx)
         return false;
 }
 
-private bool argsMatch(Params...)(LuaState state, int startIdx, size_t nargs)
+// Match a Lua call against a D function's declared parameters, including
+// omitted trailing defaults and a typesafe variadic tail.
+private bool callMatches(alias F)(LuaState state, int startIdx, size_t nargs)
 {
-    if (nargs != Params.length)
+    static if (!bindableVariadic!F)
         return false;
-    static foreach (i, P; Params)
-    {{
-        if (!luaArgMatches!(Unqual!P)(state, startIdx + cast(int) i))
-            return false;
-    }}
-    return true;
+    else
+    {
+        enum fixed = fixedParamCount!F;
+        static if (variadicFunctionStyle!F == Variadic.typesafe)
+        {
+            if (nargs < requiredParamCount!F)
+                return false;
+        }
+        else
+        {
+            if (nargs < requiredParamCount!F || nargs > fixed)
+                return false;
+        }
+
+        static foreach (i, P; Parameters!F)
+        {{
+            static if (i < fixed)
+            {
+                if (i < nargs
+                    && !luaArgMatches!(Unqual!P)(state, startIdx + cast(int) i))
+                    return false;
+            }
+            else
+            {
+                alias E = typesafeVariadicElement!F;
+                foreach (k; i .. nargs)
+                {
+                    if (!luaArgMatches!E(state, startIdx + cast(int) k))
+                        return false;
+                }
+            }
+        }}
+        return true;
+    }
 }
 
 // Stricter key screen for `opIndex`/`opIndexAssign`. Strings only match Lua
@@ -272,7 +307,9 @@ private template anyBindableConstructor(T, size_t i = 0)
         alias Ctor = __traits(getOverloads, T, "__ctor")[i];
         static if (__traits(compiles, Parameters!Ctor))
             enum bindable =
-                allBindable!(Parameters!Ctor) && canNew!(T, Parameters!Ctor);
+                allBindable!(Parameters!Ctor)
+                && bindableVariadic!Ctor
+                && canNew!(T, Parameters!Ctor);
         else
             enum bindable = false;
         enum anyBindableConstructor =
@@ -1134,13 +1171,13 @@ private extern(C) int constructorThunk(T)(lua_State* L) nothrow
             {{
                 static if (__traits(compiles, Parameters!Ctor)
                            && allBindable!(Parameters!Ctor)
+                           && bindableVariadic!Ctor
                            && canNew!(T, Parameters!Ctor))
                 {
-                    if (argsMatch!(Parameters!Ctor)(state, 2, cast(size_t) nargs))
+                    if (callMatches!Ctor(state, 2, cast(size_t) nargs))
                     {
                         Tuple!(Parameters!Ctor) args;
-                        static foreach (j, P; Parameters!Ctor)
-                            args[j] = popFrom!(Unqual!P)(state, cast(int)(j + 2));
+                        fillCallArgs!Ctor(state, args, cast(size_t) nargs, 2);
 
                         pushTo(state, new T(args.expand));
                         return 1;
@@ -1181,11 +1218,10 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
             static if (overloadBindable!Method)
             {
                 alias Params = Parameters!Method;
-                if (argsMatch!Params(state, 2, nargs))
+                if (callMatches!Method(state, 2, nargs))
                 {
                     Tuple!Params args;
-                    static foreach (j, P; Params)
-                        args[j] = popFrom!(Unqual!P)(state, cast(int)(j + 2));
+                    fillCallArgs!Method(state, args, nargs, 2);
 
                     static if (is(ReturnType!Method == void))
                     {

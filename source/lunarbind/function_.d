@@ -7,11 +7,13 @@ import lunarbind.state;
 import lunarbind.types;
 import lunarbind.value;
 import lunarbind.conv;
+import lunarbind.dispatch;
 
 import core.memory : GC;
 import std.meta : AliasSeq;
 import std.string : toStringz;
-import std.traits : Parameters, ReturnType, isSomeFunction;
+import std.traits : Parameters, ReturnType, isSomeFunction,
+                    variadicFunctionStyle, Variadic;
 import std.typecons : Tuple;
 
 // ---------------------------------------------------------------------------
@@ -118,29 +120,41 @@ final class LuaBoundFunction(Ret, Args...)
 // D -> Lua callback wrappers
 // ---------------------------------------------------------------------------
 
-private void checkArity(size_t expected, int given, LuaState state)
+private void checkArity(alias F)(int given, LuaState state)
 {
-    if (given < expected)
+    import std.conv : to;
+    enum required = requiredParamCount!F;
+    static if (variadicFunctionStyle!F == Variadic.typesafe)
     {
-        import std.conv : to;
-        auto msg = "expected at least " ~ to!string(expected) ~ " arguments, got " ~ to!string(given);
-        lua_pushlstring(state.handle, msg.ptr, msg.length);
-        lua_error(state.handle);
+        if (given < required)
+        {
+            auto msg = "expected at least " ~ to!string(required)
+                     ~ " arguments, got " ~ to!string(given);
+            lua_pushlstring(state.handle, msg.ptr, msg.length);
+            lua_error(state.handle);
+        }
     }
-}
-
-private void fillArgs(alias Fn)(LuaState state, ref Tuple!(Parameters!Fn) args)
-{
-    static foreach (i, PT; Parameters!Fn)
-        args[i] = popFrom!PT(state, cast(int)(i + 1));
+    else
+    {
+        enum fixed = fixedParamCount!F;
+        if (given < required || given > fixed)
+        {
+            auto msg = "expected between " ~ to!string(required)
+                     ~ " and " ~ to!string(fixed)
+                     ~ " arguments, got " ~ to!string(given);
+            lua_pushlstring(state.handle, msg.ptr, msg.length);
+            lua_error(state.handle);
+        }
+    }
 }
 
 private int invokeAlias(alias F)(LuaState state)
 {
     alias P = Parameters!F;
-    checkArity(P.length, lua_gettop(state.handle), state);
+    auto nargs = cast(size_t) lua_gettop(state.handle);
+    checkArity!F(cast(int) nargs, state);
     Tuple!P args;
-    fillArgs!F(state, args);
+    fillCallArgs!F(state, args, nargs, 1);
     static if (is(ReturnType!F == void))
     {
         F(args.expand);
@@ -156,9 +170,10 @@ private int invokeAlias(alias F)(LuaState state)
 private int invokeValue(Dg)(LuaState state, Dg callable)
 {
     alias P = Parameters!Dg;
-    checkArity(P.length, lua_gettop(state.handle), state);
+    auto nargs = cast(size_t) lua_gettop(state.handle);
+    checkArity!Dg(cast(int) nargs, state);
     Tuple!P args;
-    fillArgs!Dg(state, args);
+    fillCallArgs!Dg(state, args, nargs, 1);
     static if (is(ReturnType!Dg == void))
     {
         callable(args.expand);
@@ -241,6 +256,8 @@ private extern(C) int luaDelegateWrapper(Dg)(lua_State* L) nothrow
 /// Push a runtime D delegate as a Lua function.
 void pushDelegate(Dg)(LuaState state, Dg dg)
 {
+    static assert(bindableVariadic!Dg,
+                  "lunarbind: only D typesafe variadics can be bound");
     auto box = new CallbackBox!Dg(dg);
     GC.addRoot(cast(void*) box);
 
@@ -258,6 +275,8 @@ void pushDelegate(Dg)(LuaState state, Dg dg)
 /// Push a compile-time D function as a Lua function.
 void pushFunction(alias Func)(LuaState state)
 {
+    static assert(bindableVariadic!Func,
+                  "lunarbind: only D typesafe variadics can be bound");
     pushCFunction(state.handle, &luaCFunctionWrapper!Func);
 }
 

@@ -173,11 +173,13 @@ field, property or zero-argument method; arithmetic, unary and comparison
 metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
 `__call` from `opCall`; `__index`/`__newindex` falling back to
 `opIndex`/`opIndexAssign`; D structs boxed as mutable userdata (`LuaStruct!S`)
-with field access, methods and operators; `__gc`; `__eq`; D → Lua and Lua → D
-identity; weak-value identity tables so repeated pushes reuse the same userdata;
-reference-counted GC roots across states and class views.
+with field access, methods and operators; omitted trailing parameters filled
+from D default arguments; D typesafe variadics collected into an array;
+`__gc`; `__eq`; D → Lua and Lua → D identity; weak-value identity tables so
+repeated pushes reuse the same userdata; reference-counted GC roots across
+states and class views.
 
-Not yet: general weak tables, default arguments/varargs. These are deliberately
+Not yet: general weak tables, C-style/D-style variadics. These are deliberately
 listed on the roadmap rather than half-implemented.
 
 ## Roadmap
@@ -185,8 +187,8 @@ listed on the roadmap rather than half-implemented.
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
 2. **Object model**: general weak tables.
-3. **Functions**: default args, varargs, `LuaState` injection, tuple returns,
-   user-defined codecs (`LuaCodec`), coroutine wrappers.
+3. **Functions**: `LuaState` injection, tuple returns, user-defined codecs
+   (`LuaCodec`), coroutine wrappers.
 4. **Tooling**: `@LuaExport`/module builder as a single source for registration
    and EmmyLua output, benchmarks, docs.
 5. **Lua 5.5** binding profile.
