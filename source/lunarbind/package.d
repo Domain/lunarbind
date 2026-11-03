@@ -3,6 +3,7 @@
 /// Public API:
 ///   - `LuaState` shared state handle and stack primitives
 ///   - `LuaTable` / `LuaFunction` typed handles
+///   - `LuaThread` coroutine create/resume/status handle
 ///   - `LuaValue` dynamic value
 ///   - `pushTo` / `popFrom` conversion functions
 ///   - D `Tuple` results expand into multiple Lua return values
@@ -19,6 +20,7 @@ public import lunarbind.value;
 public import lunarbind.conv;
 public import lunarbind.table;
 public import lunarbind.function_;
+public import lunarbind.coroutine;
 public import lunarbind.object;
 
 version (unittest)

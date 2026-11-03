@@ -433,6 +433,12 @@ int stateSum(LuaState L, int base = 1, int[] values...)
     return result;
 }
 
+int coroutineCallback(LuaState L, int value)
+{
+    L.setGlobal("coroutine_callback_seen", value);
+    return value + 1;
+}
+
 // Filled from a Lua callback; must stay valid after the callback returns.
 LuaTable capturedTable;
 void captureTable(LuaTable table) { capturedTable = table; }
@@ -534,6 +540,78 @@ unittest
 
     auto bound = mul.bind!(int, int, int)();
     assert(bound(2, 3) == 6);
+
+    // Coroutines resume across yields and expose yielded/final values.
+    auto threadFunction = L.eval("
+        return function(a)
+            local b, c = coroutine.yield(a + 1, a + 2)
+            return b * c
+        end
+    ")[0].ref_.asFunction();
+    auto thread = LuaThread.create(threadFunction);
+    auto firstYield = thread.resume(10);
+    assert(firstYield.length == 2);
+    assert(asInt(firstYield[0]) == 11);
+    assert(asInt(firstYield[1]) == 12);
+    assert(thread.isSuspended());
+    auto finalValues = thread.resume(2, 3);
+    assert(finalValues.length == 1);
+    assert(asInt(finalValues[0]) == 6);
+    assert(!thread.isSuspended());
+
+    // Coroutine errors surface as LuaException, not as yielded values.
+    auto errorThread = LuaThread.create(L.loadString("error('boom')"));
+    bool coroutineFailed;
+    try
+        errorThread.resume();
+    catch (LuaException e)
+    {
+        coroutineFailed = true;
+        assert(e.msg.length > 0);
+    }
+    assert(coroutineFailed);
+
+    // A D callback invoked from a coroutine pushes results onto the coroutine's
+    // stack, not the main stack.
+    registerFunction!coroutineCallback(L, "coroutine_callback");
+    auto callbackThread = LuaThread.create(
+        L.loadString("return function() return coroutine_callback(41) end")
+         .call!LuaFunction());
+    auto callbackValues = callbackThread.resume();
+    assert(callbackValues.length == 1);
+    assert(asInt(callbackValues[0]) == 42);
+    assert(L.getGlobal!int("coroutine_callback_seen") == 41);
+
+    // Lua tables can be passed to a coroutine and returned from a yield.
+    auto tableThread = LuaThread.create(
+        L.loadString("
+            return function(t)
+                coroutine.yield({answer = t.x + 1})
+                return t.x + 2
+            end
+        ").call!LuaFunction());
+    auto input = LuaTable.create(L);
+    input.set("x", 7);
+    auto yieldedTable = tableThread.resume(input);
+    assert(yieldedTable.length == 1);
+    auto yielded = yieldedTable[0].ref_.asTable();
+    assert(yielded.get!int("answer") == 8);
+    auto finishedTable = tableThread.resume();
+    assert(finishedTable.length == 1);
+    assert(asInt(finishedTable[0]) == 9);
+
+    // Existing Lua threads can be adopted from a thread value.
+    auto adoptedValue = L.eval("return coroutine.create(function(a) return a + 5 end)")[0];
+    auto adopted = LuaThread.fromValue(adoptedValue);
+    auto adoptedValues = adopted.resume(37);
+    assert(adoptedValues.length == 1);
+    assert(asInt(adoptedValues[0]) == 42);
+
+    // LuaThread handles push back into Lua as thread values.
+    L.setGlobal("adopted_thread", adopted);
+    auto adoptedRoundTrip = L.getGlobal!LuaValue("adopted_thread");
+    assert(adoptedRoundTrip.kind == LuaType.thread);
+    assert(LuaThread.fromValue(adoptedRoundTrip).status() == LuaStatus.ok);
 
     // D functions from Lua: plain function
     registerFunction!add(L, "add");

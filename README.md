@@ -43,6 +43,7 @@ source/lunarbind/
   conv.d         pushTo!T / popFrom!T (primitives, strings, arrays, AAs, Nullable, LuaRef)
   table.d        LuaTable (registry-backed; get/set/opIndex/foreach, weak tables)
   function_.d    LuaFunction call/bind, callback wrappers, delegate boxing, registration
+  coroutine.d    LuaThread: create/resume/yield/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
 ```
@@ -91,6 +92,22 @@ void main()
 
 `samples/hello.d` is a runnable version.
 
+Coroutines use the same state and registry:
+
+```d
+auto fn = L.loadString("
+    return function(a)
+        local b = coroutine.yield(a + 1)
+        return b * 2
+    end
+").call!LuaFunction();
+
+auto co = LuaThread.create(fn);
+auto yielded = co.resume(10);  // 11, suspended at the yield
+auto finished = co.resume(4);  // 8, coroutine finished
+assert(!co.isSuspended());
+```
+
 ## Build / test
 
 DUB configurations (pick one):
@@ -128,7 +145,7 @@ not need network access. `dub test` links against the selected Lua library.
 ## Design
 
 ```
-user API      LuaState / LuaTable / LuaFunction / LuaClass!T / LuaStruct!S / LuaValue
+user API      LuaState / LuaTable / LuaFunction / LuaThread / LuaClass!T / LuaStruct!S / LuaValue
 bind          extern(C) trampolines, registration, callbacks
 object        full userdata + metatable, fields/methods, GC rooting
 marshal       pushTo!T / popFrom!T, LuaRef, LuaString (zero-copy view)
@@ -145,6 +162,13 @@ created inside a callback stay valid after the callback returns. The underlying
 `lua_State` is closed when the last handle and reference are released. Pushing a
 reference into a different Lua state throws `LuaStateException` instead of
 silently reading the wrong registry.
+
+A `LuaThread` handle addresses one coroutine's stack while sharing the owner's
+`StateCore` and registry. `LuaThread.resume` pushes arguments on the coroutine
+stack, resumes it, and copies yielded or final values into D. `LuaState.wrap`
+preserves the thread when called from a Lua callback, while `mainState()` returns
+a handle to the owner state; registry references always push through the main
+state so they cannot disturb a suspended coroutine.
 
 D class userdata are rooted in the D GC. Because the GC root set is process-wide
 and not reference-counted, `lunarbind` keeps its own per-object count: an object
@@ -178,8 +202,8 @@ metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
 with field access, methods and operators; omitted trailing parameters filled
 from D default arguments; D typesafe variadics collected into an array; D
 `Tuple` results expanded into multiple Lua returns; `LuaState` parameters
-injected into callbacks; weak-key/weak-value tables (`LuaWeakness`); `__gc`;
-`__eq`; D → Lua and Lua → D
+injected into callbacks; weak-key/weak-value tables (`LuaWeakness`); coroutine
+creation and resumption through `LuaThread`; `__gc`; `__eq`; D → Lua and Lua → D
 identity; weak-value identity tables so repeated pushes reuse the same userdata;
 reference-counted GC roots across states and class views.
 
@@ -190,7 +214,7 @@ rather than half-implemented.
 
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
-2. **Functions**: user-defined codecs (`LuaCodec`), coroutine wrappers.
+2. **Functions**: user-defined codecs (`LuaCodec`).
 3. **Tooling**: `@LuaExport`/module builder as a single source for registration
    and EmmyLua output, benchmarks, docs.
 4. **Lua 5.5** binding profile.

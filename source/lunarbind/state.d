@@ -84,16 +84,24 @@ private StateCore loadStateCore(lua_State* L) nothrow
 struct LuaState
 {
     private StateCore _core;
+    // The state used for stack operations. It is the main state for ordinary
+    // handles and the coroutine's state for handles wrapping a Lua thread.
+    // Every thread shares the owning core's registry.
+    private lua_State* _handle;
 
     private this(lua_State* L, bool ownsClose)
     {
         _core = new StateCore(L, ownsClose);
+        _handle = L;
     }
 
-    /// Adopt an existing core, retaining it.
-    private this(StateCore core, bool retain) nothrow
+    /// Adopt an existing core, retaining it. `handle` selects the thread whose
+    /// stack this wrapper addresses; it defaults to the core's main state.
+    private this(StateCore core, bool retain,
+                 lua_State* handle = null) nothrow
     {
         _core = core;
+        _handle = handle is null ? core.L : handle;
         if (retain)
             _core.retain();
     }
@@ -112,12 +120,13 @@ struct LuaState
 
     ref LuaState opAssign(LuaState rhs) return
     {
-        if (_core is rhs._core)
+        if (_core is rhs._core && _handle is rhs._handle)
             return this;
         if (rhs._core !is null)
             rhs._core.retain();
         auto old = _core;
         _core = rhs._core;
+        _handle = rhs._handle;
         if (old !is null)
             old.release();
         return this;
@@ -152,16 +161,17 @@ struct LuaState
     /// Wrap an existing state without taking ownership. Intended for callbacks.
     /// When the state was created by LuaState.open/adopt, this shares the
     /// owner's StateCore so references stay valid for the state's lifetime.
+    /// For a Lua thread, the returned handle addresses that thread's stack.
     static LuaState wrap(lua_State* L)
     {
         if (L is null)
             throw new LuaStateException("cannot wrap a null lua_State");
         if (auto core = loadStateCore(L))
-            return LuaState(core, true);
+            return LuaState(core, true, L);
         return LuaState(L, false);
     }
 
-    /// True when both handles share the same StateCore (same lua_State).
+    /// True when both handles share the same StateCore (same Lua universe).
     bool sharesState(LuaState other)
     {
         return _core is other._core;
@@ -181,7 +191,7 @@ struct LuaState
 
     bool isOpen() const @nogc nothrow
     {
-        return _core !is null && !_core.closed && _core.L !is null;
+        return _core !is null && !_core.closed && _handle !is null;
     }
 
     size_t referenceCount() const @nogc nothrow
@@ -192,7 +202,18 @@ struct LuaState
     /// Number of currently live LuaState handles sharing the same core.
     @property lua_State* handle() @nogc nothrow
     {
-        return _core is null ? null : _core.L;
+        return _handle;
+    }
+
+    /// A handle addressing the main state of this Lua universe. For a handle
+    /// wrapping a coroutine this is the thread's owner state, whose registry is
+    /// shared. State-wide operations and `LuaRef` stack pushes use it so they
+    /// never disturb a suspended coroutine's stack.
+    LuaState mainState()
+    {
+        if (_core is null)
+            return LuaState.init;
+        return LuaState(_core, true);
     }
 
     void ensureOpen() const
@@ -435,7 +456,9 @@ struct LuaRef
 
     this(LuaState state, int ref_)
     {
-        _holder = RefCounted!RefHolder(state, ref_);
+        // Registry references are universe-wide. Store the main state so
+        // pushing a reference never touches a suspended coroutine's stack.
+        _holder = RefCounted!RefHolder(state.mainState(), ref_);
     }
 
     /// Copy the value at `idx` into the registry and return a reference.
@@ -467,20 +490,20 @@ struct LuaRef
         lua_rawgeti(_holder.state.handle, LUA_REGISTRYINDEX, _holder.ref_);
     }
 
-    /// True when this reference belongs to a live `target` Lua state.
+    /// True when this reference belongs to a live `target` Lua state. Threads
+    /// of one state share a registry and therefore belong to each other.
     bool belongsTo(LuaState target)
     {
-        auto from = _holder.state.handle;
-        auto to = target.handle;
-        return from !is null && from is to;
+        return _holder.state.handle !is null && _holder.state.sharesState(target);
     }
 
-    /// Push this reference, refusing to leak it into a different Lua state.
+    /// Push this reference onto `target`, refusing to leak it into a different
+    /// Lua state.
     void pushInto(LuaState target)
     {
         if (!belongsTo(target))
             throw new LuaStateException("LuaRef belongs to a different Lua state");
-        push();
+        lua_rawgeti(target.handle, LUA_REGISTRYINDEX, _holder.ref_);
     }
 
     LuaType type()

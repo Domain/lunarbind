@@ -50,6 +50,11 @@ void pushTo(T)(LuaState L, auto ref T value)
     {
         value.pushInto(L);
     }
+    else static if (__traits(compiles, value.pushInto(L)))
+    {
+        // Typed handles such as LuaThread expose `pushInto`.
+        value.pushInto(L);
+    }
     else static if (is(T == class))
     {
         import lunarbind.object : LuaClass;

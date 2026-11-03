@@ -122,7 +122,7 @@ struct LuaValue
                 if (ref_.isNull())
                     lua_pushnil(state.handle);
                 else
-                    ref_.push();
+                    ref_.pushInto(state);
                 break;
             case LuaType.lightUserdata:
                 lua_pushlightuserdata(state.handle, userdataValue);
