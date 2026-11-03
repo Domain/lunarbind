@@ -24,7 +24,9 @@ that goal:
 - one `extern(C)` trampoline per signature for callbacks (never type-punning
   `void*`/delegate internals);
 - `pushTo!T` / `popFrom!T` conversion policy instead of a closed `static if`;
-- full-userdata based object binding (`LuaClass!T`) with D-GC rooting.
+- full-userdata based object binding (`LuaClass!T`, `LuaStruct!S`) with D-GC
+  rooting;
+- weak-key/weak-value tables for caches and identity maps (`LuaWeakness`).
 
 It is a **new codebase**, not a patch on lumars; tests, UDA/field filtering ideas
 and the EmmyLua generator can be migrated over time. lumars remains MIT-licensed
@@ -39,9 +41,9 @@ source/lunarbind/
   state.d        StateCore, LuaState, StackGuard, LuaRef, traceback/error helpers
   value.d        LuaValue (dynamic value for untyped edges)
   conv.d         pushTo!T / popFrom!T (primitives, strings, arrays, AAs, Nullable, LuaRef)
-  table.d        LuaTable (registry-backed; get/set/opIndex/foreach)
+  table.d        LuaTable (registry-backed; get/set/opIndex/foreach, weak tables)
   function_.d    LuaFunction call/bind, callback wrappers, delegate boxing, registration
-  object.d       LuaClass!T: D class <-> Lua full userdata + metatable
+  object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
 ```
 
@@ -126,7 +128,7 @@ not need network access. `dub test` links against the selected Lua library.
 ## Design
 
 ```
-user API      LuaState / LuaTable / LuaFunction / LuaClass!T / LuaValue
+user API      LuaState / LuaTable / LuaFunction / LuaClass!T / LuaStruct!S / LuaValue
 bind          extern(C) trampolines, registration, callbacks
 object        full userdata + metatable, fields/methods, GC rooting
 marshal       pushTo!T / popFrom!T, LuaRef, LuaString (zero-copy view)
@@ -175,23 +177,22 @@ metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
 `opIndex`/`opIndexAssign`; D structs boxed as mutable userdata (`LuaStruct!S`)
 with field access, methods and operators; omitted trailing parameters filled
 from D default arguments; D typesafe variadics collected into an array;
-`__gc`; `__eq`; D → Lua and Lua → D identity; weak-value identity tables so
-repeated pushes reuse the same userdata; reference-counted GC roots across
-states and class views.
+weak-key/weak-value tables (`LuaWeakness`); `__gc`; `__eq`; D → Lua and Lua → D
+identity; weak-value identity tables so repeated pushes reuse the same userdata;
+reference-counted GC roots across states and class views.
 
-Not yet: general weak tables, C-style/D-style variadics. These are deliberately
-listed on the roadmap rather than half-implemented.
+Not yet: C-style/D-style variadics. These are deliberately listed on the roadmap
+rather than half-implemented.
 
 ## Roadmap
 
 1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
-2. **Object model**: general weak tables.
-3. **Functions**: `LuaState` injection, tuple returns, user-defined codecs
+2. **Functions**: `LuaState` injection, tuple returns, user-defined codecs
    (`LuaCodec`), coroutine wrappers.
-4. **Tooling**: `@LuaExport`/module builder as a single source for registration
+3. **Tooling**: `@LuaExport`/module builder as a single source for registration
    and EmmyLua output, benchmarks, docs.
-5. **Lua 5.5** binding profile.
+4. **Lua 5.5** binding profile.
 
 ## License
 

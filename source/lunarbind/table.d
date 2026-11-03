@@ -8,6 +8,19 @@ import lunarbind.types;
 import lunarbind.value;
 import lunarbind.conv;
 
+/// Weak-reference behavior for a Lua table.
+enum LuaWeakness
+{
+    /// Keys and values are strong.
+    none,
+    /// Keys are weak; unreachable key objects are removed from the table.
+    keys,
+    /// Values are weak; unreachable value objects are removed from the table.
+    values,
+    /// Both keys and values are weak.
+    both,
+}
+
 struct LuaTable
 {
     private LuaRef _ref;
@@ -15,6 +28,49 @@ struct LuaTable
     this(LuaRef ref_)
     {
         _ref = ref_;
+    }
+
+    /// Create a fresh, empty table.
+    static LuaTable create(LuaState state, int arrayHint = 0, int recordHint = 0)
+    {
+        lua_createtable(state.handle, arrayHint, recordHint);
+        auto ref_ = LuaRef.make(state, -1);
+        state.pop(1);
+        return LuaTable(ref_);
+    }
+
+    /// Create a fresh table with weak keys and/or values.
+    static LuaTable createWeak(LuaState state, LuaWeakness weakness,
+                               int arrayHint = 0, int recordHint = 0)
+    {
+        auto table = create(state, arrayHint, recordHint);
+        table.setWeakness(weakness);
+        return table;
+    }
+
+    /// Set weak keys/values through the table's metatable.
+    ///
+    /// An existing metatable is reused; otherwise an empty one is attached.
+    /// Set this once, before filling the table: Lua only reads `__mode` when
+    /// it collects the table's entries.
+    void setWeakness(LuaWeakness weakness)
+    {
+        if (weakness == LuaWeakness.none)
+            return;
+
+        auto s = state();
+        StackGuard guard = StackGuard(s);
+        push();                                  // [table]
+        if (lua_getmetatable(s.handle, -1) == 0)
+        {
+            lua_createtable(s.handle, 0, 1);      // [table, metatable]
+            lua_pushvalue(s.handle, -1);          // [table, metatable, metatable]
+            lua_setmetatable(s.handle, -3);       // [table, metatable]
+        }
+
+        auto mode = weaknessMode(weakness);
+        lua_pushlstring(s.handle, mode.ptr, mode.length);
+        lua_setfield(s.handle, -2, "__mode");    // [table, metatable]
     }
 
     LuaState state() { return _ref.state(); }
@@ -92,5 +148,16 @@ struct LuaTable
                 return result;
         }
         return 0;
+    }
+}
+
+private string weaknessMode(LuaWeakness weakness)
+{
+    final switch (weakness)
+    {
+        case LuaWeakness.none:   return "";
+        case LuaWeakness.keys:   return "k";
+        case LuaWeakness.values: return "v";
+        case LuaWeakness.both:   return "kv";
     }
 }

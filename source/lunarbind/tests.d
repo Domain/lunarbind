@@ -420,6 +420,63 @@ unittest
         sum += asInt(v);
     assert(sum == 6);
 
+    // Weak tables drop entries when keys or values become unreachable.
+    auto weakValues = LuaTable.createWeak(L, LuaWeakness.values);
+    L.setGlobal("weakValues", weakValues);
+    L.doString("
+        local key = {}
+        local function setValue()
+            weakValues[key] = {}
+        end
+        setValue()
+        weakValues[1] = 'kept'
+        assert(getmetatable(weakValues).__mode == 'v')
+        collectgarbage()
+        collectgarbage()
+        local count = 0
+        for _ in pairs(weakValues) do count = count + 1 end
+        assert(count == 1)
+        assert(weakValues[1] == 'kept')
+    ");
+
+    auto weakKeys = LuaTable.createWeak(L, LuaWeakness.keys);
+    L.setGlobal("weakKeys", weakKeys);
+    L.doString("
+        local function setKey()
+            local key = {}
+            weakKeys[key] = 'gone'
+        end
+        setKey()
+        weakKeys[1] = 'kept'
+        assert(getmetatable(weakKeys).__mode == 'k')
+        collectgarbage()
+        collectgarbage()
+        local count = 0
+        for _ in pairs(weakKeys) do count = count + 1 end
+        assert(count == 1)
+        assert(weakKeys[1] == 'kept')
+    ");
+
+    // Existing tables can be made weak in place.
+    auto weakBoth = LuaTable.create(L);
+    weakBoth.setWeakness(LuaWeakness.both);
+    L.setGlobal("weakBoth", weakBoth);
+    L.doString("
+        local function setEntry()
+            local key = {}
+            weakBoth[key] = {}
+        end
+        setEntry()
+        weakBoth[1] = 'kept'
+        assert(getmetatable(weakBoth).__mode == 'kv')
+        collectgarbage()
+        collectgarbage()
+        local count = 0
+        for _ in pairs(weakBoth) do count = count + 1 end
+        assert(count == 1)
+        assert(weakBoth[1] == 'kept')
+    ");
+
     // Lua functions from D
     auto f = L.loadString("return 40 + 2");
     assert(f.call!int() == 42);
