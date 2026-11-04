@@ -23,11 +23,28 @@ final class StateCore
     bool ownsClose;
     bool closed;
     size_t refs = 1;
+    // State-wide extension objects (for example user codecs). Keys are type
+    // identities; values are GC-managed so they stay alive with the core.
+    private Object[TypeInfo] _extensions;
 
     this(lua_State* L, bool ownsClose) nothrow
     {
         this.L = L;
         this.ownsClose = ownsClose;
+    }
+
+    package Object getExtension(TypeInfo type)
+    {
+        auto found = type in _extensions;
+        return found is null ? null : *found;
+    }
+
+    package void setExtension(TypeInfo type, Object value)
+    {
+        if (value is null)
+            _extensions.remove(type);
+        else
+            _extensions[type] = value;
     }
 
     void retain() nothrow
@@ -48,6 +65,7 @@ final class StateCore
         if (closed)
             return;
         closed = true;
+        _extensions = null;
         if (ownsClose && L !is null)
             lua_close(L);
         L = null;
@@ -214,6 +232,19 @@ struct LuaState
         if (_core is null)
             return LuaState.init;
         return LuaState(_core, true);
+    }
+
+    /// Internal state-wide extension lookup, used by codecs.
+    package Object getExtension(TypeInfo type)
+    {
+        return _core is null ? null : _core.getExtension(type);
+    }
+
+    /// Internal state-wide extension registration, used by codecs.
+    package void setExtension(TypeInfo type, Object value)
+    {
+        ensureOpen();
+        _core.setExtension(type, value);
     }
 
     void ensureOpen() const

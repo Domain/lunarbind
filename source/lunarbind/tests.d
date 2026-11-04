@@ -307,6 +307,85 @@ class HasPoint
     Point point;
 }
 
+struct Vec2
+{
+    double x;
+    double y;
+}
+
+struct Vec2Codec
+{
+    static void push(LuaState L, ref const Vec2 value)
+    {
+        auto table = LuaTable.create(L);
+        table["x"] = value.x;
+        table["y"] = value.y;
+        table.pushInto(L);
+    }
+
+    static Vec2 pop(LuaState L, int idx)
+    {
+        auto table = popFrom!LuaTable(L, idx);
+        return Vec2(table.get!double("x"), table.get!double("y"));
+    }
+
+    static bool check(LuaState L, int idx)
+    {
+        return lua_type(L.handle, idx) == LUA_TTABLE;
+    }
+}
+
+class CodecMath
+{
+    Vec2 add(Vec2 a, Vec2 b) const
+    {
+        return Vec2(a.x + b.x, a.y + b.y);
+    }
+
+    double length(Vec2 value) const
+    {
+        return value.x + value.y;
+    }
+
+    string describe(Vec2 value) const
+    {
+        return "vec";
+    }
+
+    string describe(int value) const
+    {
+        return "int";
+    }
+}
+
+class Tagged
+{
+    string text;
+
+    this(string text)
+    {
+        this.text = text;
+    }
+}
+
+struct TaggedCodec
+{
+    static void push(LuaState L, ref const Tagged value)
+    {
+        pushTo(L, value.text);
+    }
+
+    static Tagged pop(LuaState L, int idx)
+    {
+        return new Tagged(popFrom!string(L, idx));
+    }
+
+    static bool check(LuaState L, int idx)
+    {
+        return lua_type(L.handle, idx) == LUA_TSTRING;
+    }
+}
+
 class Defaults
 {
     int base;

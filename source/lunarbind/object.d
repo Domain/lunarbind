@@ -215,6 +215,8 @@ private bool luaArgMatches(T)(LuaState state, int idx)
         return t == LUA_TTABLE || t == LUA_TNIL;
     else static if (is(T == class))
     {
+        if (hasCodec!T(state))
+            return codecMatches!T(state, idx);
         if (t == LUA_TNIL)
             return true;
         if (t != LUA_TUSERDATA)
@@ -223,9 +225,12 @@ private bool luaArgMatches(T)(LuaState state, int idx)
     }
     else static if (is(Unqual!T == struct))
     {
+        alias S = Unqual!T;
+        if (hasCodec!S(state))
+            return codecMatches!S(state, idx);
         if (t != LUA_TUSERDATA)
             return false;
-        return LuaStruct!(Unqual!T).isInstance(state, idx);
+        return LuaStruct!S.isInstance(state, idx);
     }
     else
         return false;

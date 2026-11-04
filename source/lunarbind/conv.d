@@ -28,6 +28,81 @@ struct LuaString
     alias value this;
 }
 
+/// A user-defined conversion between a D type and a Lua value.
+///
+/// Codecs are registered per `LuaState` and take precedence over the default
+/// `LuaClass!T`/`LuaStruct!T` representation for classes and structs. `push`
+/// writes a value onto the Lua stack, `pop` reads a value from `idx`, and the
+/// optional `check` predicate is used by overload resolution. Without `check`,
+/// any non-nil Lua value is accepted.
+struct LuaCodec(T)
+{
+    alias Push = void delegate(LuaState, ref const T);
+    alias Pop = T delegate(LuaState, int);
+    alias Check = bool delegate(LuaState, int);
+
+    Push push;
+    Pop pop;
+    Check check;
+
+    this(Push push, Pop pop, Check check = null)
+    {
+        this.push = push;
+        this.pop = pop;
+        this.check = check;
+    }
+}
+
+private final class CodecHolder(T)
+{
+    LuaCodec!T codec;
+
+    this(LuaCodec!T codec)
+    {
+        this.codec = codec;
+    }
+}
+
+/// Register or replace the codec for `T` in this state.
+void registerCodec(T)(LuaState L, LuaCodec!T codec)
+{
+    static assert(is(T == Unqual!T),
+                  "register a codec for the unqualified type");
+    if (codec.push is null || codec.pop is null)
+        throw new LuaArgumentException("LuaCodec requires push and pop functions");
+    L.setExtension(typeid(T), new CodecHolder!T(codec));
+}
+
+/// Remove a previously registered codec for `T`.
+void unregisterCodec(T)(LuaState L)
+{
+    static assert(is(T == Unqual!T),
+                  "unregister a codec for the unqualified type");
+    L.setExtension(typeid(T), null);
+}
+
+private CodecHolder!T codecFor(T)(LuaState L)
+{
+    auto extension = L.getExtension(typeid(Unqual!T));
+    return extension is null ? null : cast(CodecHolder!(Unqual!T)) extension;
+}
+
+package bool hasCodec(T)(LuaState L)
+{
+    return codecFor!(Unqual!T)(L) !is null;
+}
+
+package bool codecMatches(T)(LuaState L, int idx)
+{
+    auto holder = codecFor!(Unqual!T)(L);
+    if (holder is null)
+        return false;
+    if (holder.codec.check !is null)
+        return holder.codec.check(L, idx);
+    auto t = lua_type(L.handle, idx);
+    return t != LUA_TNIL && t != LUA_TNONE;
+}
+
 /// Push a D value onto the Lua stack.
 void pushTo(T)(LuaState L, auto ref T value)
 {
@@ -57,8 +132,16 @@ void pushTo(T)(LuaState L, auto ref T value)
     }
     else static if (is(T == class))
     {
-        import lunarbind.object : LuaClass;
-        LuaClass!T.push(L, value);
+        if (auto holder = codecFor!T(L))
+        {
+            auto copy = value;
+            holder.codec.push(L, copy);
+        }
+        else
+        {
+            import lunarbind.object : LuaClass;
+            LuaClass!T.push(L, value);
+        }
     }
     else static if (is(T == LuaString))
     {
@@ -112,9 +195,17 @@ void pushTo(T)(LuaState L, auto ref T value)
     }
     else static if (is(Unqual!T == struct))
     {
-        import lunarbind.object : LuaStruct;
         alias S = Unqual!T;
-        LuaStruct!S.push(L, cast(S) value);
+        if (auto holder = codecFor!S(L))
+        {
+            auto copy = cast(S) value;
+            holder.codec.push(L, copy);
+        }
+        else
+        {
+            import lunarbind.object : LuaStruct;
+            LuaStruct!S.push(L, cast(S) value);
+        }
     }
     else
     {
@@ -248,6 +339,8 @@ T popFrom(T)(LuaState L, int idx)
     }
     else static if (is(T == class))
     {
+        if (auto holder = codecFor!T(L))
+            return holder.codec.pop(L, idx);
         if (lua_type(h, idx) == LUA_TNIL)
             return null;
         import lunarbind.object : LuaClass;
@@ -255,8 +348,11 @@ T popFrom(T)(LuaState L, int idx)
     }
     else static if (is(Unqual!T == struct))
     {
+        alias S = Unqual!T;
+        if (auto holder = codecFor!S(L))
+            return cast(T) holder.codec.pop(L, idx);
         import lunarbind.object : LuaStruct;
-        return cast(T) LuaStruct!(Unqual!T).get(L, idx);
+        return cast(T) LuaStruct!S.get(L, idx);
     }
     else
     {
