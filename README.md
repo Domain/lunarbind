@@ -244,8 +244,9 @@ metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
 `__call` from `opCall`; `__index`/`__newindex` falling back to
 `opIndex`/`opIndexAssign`; D structs boxed as mutable userdata (`LuaStruct!S`)
 with field access, methods and operators; omitted trailing parameters filled
-from D default arguments; D typesafe variadics collected into an array; D
-`Tuple` results expanded into multiple Lua returns; `LuaState` parameters
+from D default arguments; D typesafe variadics collected into an array; D enums
+converted through their base integer type; D `Tuple` results expanded into
+multiple Lua returns; `LuaState` parameters
 injected into callbacks; weak-key/weak-value tables (`LuaWeakness`); coroutine
 creation and resumption through `LuaThread`; `__gc`; `__eq`; D → Lua and Lua → D
 identity; weak-value identity tables so repeated pushes reuse the same userdata;

@@ -200,6 +200,54 @@ class Bag
     }
 }
 
+enum Color
+{
+    red,
+    green,
+    blue,
+}
+
+Color nextColor(Color color)
+{
+    return cast(Color) ((cast(int) color + 1) % 3);
+}
+
+string colorName(Color color)
+{
+    switch (color)
+    {
+        case Color.red:
+            return "red";
+        case Color.green:
+            return "green";
+        case Color.blue:
+            return "blue";
+        default:
+            return "unknown";
+    }
+}
+
+class Palette
+{
+    Color current;
+
+    this(Color current)
+    {
+        this.current = current;
+    }
+
+    Color next()
+    {
+        current = nextColor(current);
+        return current;
+    }
+
+    string name(Color color) const
+    {
+        return colorName(color);
+    }
+}
+
 class Vec
 {
     int x;
@@ -1100,6 +1148,25 @@ unittest
     }
     assert(codecRejected);
 
+    // Enums cross the boundary as their base integer values.
+    L.setGlobal("color", Color.green);
+    assert(L.getGlobal!Color("color") == Color.green);
+    registerFunction!nextColor(L, "nextColor");
+    registerFunction!colorName(L, "colorName");
+    LuaClass!Palette.registerClass(L, "Palette");
+    auto enumResult = L.eval("
+        assert(nextColor(0) == 1)
+        assert(colorName(2) == 'blue')
+        local p = Palette(0)
+        assert(p.current == 0)
+        assert(p:name(2) == 'blue')
+        assert(p:next() == 1)
+        return p.current, nextColor(1), colorName(1)
+    ");
+    assert(asInt(enumResult[0]) == 1);
+    assert(asInt(enumResult[1]) == 2);
+    assert(enumResult[2].stringValue == "green");
+
     // Constructor arity errors surface as Lua errors.
     bool ctorFailed;
     try
@@ -1185,6 +1252,8 @@ unittest
     registerModule!(lunarbind.tests)(L, "testlib");
     auto moduleResult = L.eval("
         assert(testlib.hiddenFree == nil)
+        assert(testlib.nextColor(0) == 1)
+        assert(testlib.colorName(2) == 'blue')
         return testlib.add(20, 22),
                testlib.addDefault(1),
                testlib.sumVariadic(1, 2, 3),

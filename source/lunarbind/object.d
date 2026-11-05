@@ -40,7 +40,8 @@ import std.traits : fullyQualifiedName, Parameters, ReturnType, isIntegral,
                     isFloatingPoint, isSomeString, isDynamicArray,
                     isAssociativeArray, isInstanceOf, functionAttributes,
                     FunctionAttribute, BaseClassesTuple, Unqual, FieldTypeTuple,
-                    isStaticArray, isPointer, variadicFunctionStyle, Variadic;
+                    isStaticArray, isPointer, variadicFunctionStyle, Variadic,
+                    OriginalType;
 import std.typecons : Tuple, Nullable;
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,7 @@ private template isBindableType(T)
 {
     enum isBindableType =
         is(T == bool)
+        || (is(T == enum) && isBindableType!(OriginalType!T))
         || isIntegral!T
         || isFloatingPoint!T
         || isSomeString!T
@@ -217,6 +219,8 @@ package bool luaArgMatches(T)(LuaState state, int idx)
         return t == LUA_TSTRING || t == LUA_TNUMBER || t == LUA_TNIL;
     else static if (is(T == bool))
         return true;
+    else static if (is(T == enum))
+        return luaArgMatches!(OriginalType!T)(state, idx);
     else static if (isIntegral!T || isFloatingPoint!T)
         return t == LUA_TNUMBER;
     else static if (is(T == void*))

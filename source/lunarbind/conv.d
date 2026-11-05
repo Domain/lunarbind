@@ -16,7 +16,8 @@ import lunarbind.table : LuaTable;
 import lunarbind.function_ : LuaFunction;
 
 import std.traits : isIntegral, isFloatingPoint, isDynamicArray,
-                    isAssociativeArray, isSomeString, KeyType, ValueType, isPointer, isInstanceOf, Unqual;
+                    isAssociativeArray, isSomeString, KeyType, ValueType, isPointer,
+                    isInstanceOf, Unqual, OriginalType;
 import std.typecons : Nullable;
 import std.meta : AliasSeq;
 
@@ -155,6 +156,10 @@ void pushTo(T)(LuaState L, auto ref T value)
     {
         lua_pushboolean(L.handle, value ? 1 : 0);
     }
+    else static if (is(T == enum))
+    {
+        pushTo(L, cast(OriginalType!T) value);
+    }
     else static if (isIntegral!T)
     {
         lua_pushinteger(L.handle, cast(lua_Integer) value);
@@ -267,6 +272,10 @@ T popFrom(T)(LuaState L, int idx)
     else static if (is(T == bool))
     {
         return lua_toboolean(h, idx) != 0;
+    }
+    else static if (is(T == enum))
+    {
+        return cast(T) popFrom!(OriginalType!T)(L, idx);
     }
     else static if (isIntegral!T)
     {
