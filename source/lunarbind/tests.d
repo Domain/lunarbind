@@ -5,6 +5,7 @@ module lunarbind.tests;
 import lunarbind;
 
 import std.conv : to;
+import std.functional : toDelegate;
 import std.typecons : Tuple, tuple;
 
 class Player
@@ -1049,6 +1050,55 @@ unittest
     LuaClass!HasPoint.setGlobal(L, "holder", holder);
     L.doString("assert(holder.point.x == 3); holder.point = point2");
     assert(holder.point.x == 1 && holder.point.y == 2);
+
+    // Per-state codecs override the default struct/class representation and
+    // participate in overload selection through their check predicate.
+    registerCodec!Vec2(L,
+        LuaCodec!Vec2(toDelegate(&Vec2Codec.push),
+                      toDelegate(&Vec2Codec.pop),
+                      toDelegate(&Vec2Codec.check)));
+    auto codecMath = new CodecMath;
+    LuaClass!CodecMath.setGlobal(L, "codecMath", codecMath);
+    auto codecResult = L.eval("
+        local v = {x = 1, y = 2}
+        assert(codecMath:describe(v) == 'vec')
+        assert(codecMath:describe(7) == 'int')
+        local made = codecMath:add(v, {x = 2, y = 3})
+        return made.x, made.y, codecMath:length(v)
+    ");
+    assert(asInt(codecResult[0]) == 3);
+    assert(asInt(codecResult[1]) == 5);
+    assert(asInt(codecResult[2]) == 3);
+
+    registerCodec!Tagged(L,
+        LuaCodec!Tagged(toDelegate(&TaggedCodec.push),
+                        toDelegate(&TaggedCodec.pop),
+                        toDelegate(&TaggedCodec.check)));
+    auto tagged = new Tagged("hello");
+    L.setGlobal("tagged", tagged);
+    auto taggedResult = L.eval("return tagged");
+    assert(taggedResult[0].stringValue == "hello");
+    auto taggedBack = L.getGlobal!Tagged("tagged");
+    assert(taggedBack !is tagged);
+    assert(taggedBack.text == "hello");
+
+    // Removing the codec restores the normal LuaClass representation.
+    unregisterCodec!Tagged(L);
+    L.setGlobal("taggedDefault", tagged);
+    auto taggedKind = L.eval("return type(taggedDefault)");
+    assert(taggedKind[0].stringValue == "userdata");
+    assert(L.getGlobal!Tagged("taggedDefault") is tagged);
+
+    bool codecRejected;
+    try
+    {
+        registerCodec!Vec2(L, LuaCodec!Vec2.init);
+    }
+    catch (LuaArgumentException)
+    {
+        codecRejected = true;
+    }
+    assert(codecRejected);
 
     // Constructor arity errors surface as Lua errors.
     bool ctorFailed;

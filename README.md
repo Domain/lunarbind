@@ -96,6 +96,28 @@ module as one Lua table, including overloads. Both helpers share the same
 default-argument, typesafe-variadic and `LuaState` injection rules as
 `registerFunction`.
 
+Custom representations are registered per state and override the default
+`LuaStruct!S`/`LuaClass!T` conversion:
+
+```d
+struct Vec2 { double x, y; }
+
+registerCodec!Vec2(L, LuaCodec!Vec2(
+    (LuaState L, ref const Vec2 v) {
+        auto t = LuaTable.create(L);
+        t["x"] = v.x;
+        t["y"] = v.y;
+        t.pushInto(L);
+    },
+    (LuaState L, int idx) {
+        auto t = popFrom!LuaTable(L, idx);
+        return Vec2(t.get!double("x"), t.get!double("y"));
+    },
+    (LuaState L, int idx) => lua_type(L.handle, idx) == LUA_TTABLE
+));
+```
+
+The optional `check` predicate is also used when selecting between overloads.
 `samples/hello.d` is a runnable version.
 
 Coroutines use the same state and registry:
@@ -227,19 +249,20 @@ from D default arguments; D typesafe variadics collected into an array; D
 injected into callbacks; weak-key/weak-value tables (`LuaWeakness`); coroutine
 creation and resumption through `LuaThread`; `__gc`; `__eq`; D → Lua and Lua → D
 identity; weak-value identity tables so repeated pushes reuse the same userdata;
-reference-counted GC roots across states and class views.
+reference-counted GC roots across states and class views. Custom per-state
+codecs (`registerCodec!T`) override the default class/struct representation and
+participate in overload selection through their `check` predicate.
 
 Not yet: C-style/D-style variadics. These are deliberately listed on the roadmap
 rather than half-implemented.
 
 ## Roadmap
 
-1. **Stability** (next): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
-   fix bugs exposed by real Lua runs, add `@nogc` fast paths where possible.
-2. **Functions**: user-defined codecs (`LuaCodec`).
-3. **Tooling**: `@LuaExport`/module builder as a single source for registration
+1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
+   fuzzing, and `@nogc` fast paths where possible.
+2. **Tooling**: `@LuaExport`/module builder as a single source for registration
    and EmmyLua output, benchmarks, docs.
-4. **Lua 5.5** binding profile.
+3. **Lua 5.5** binding profile.
 
 ## License
 

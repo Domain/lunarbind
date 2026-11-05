@@ -118,7 +118,9 @@ build_lua() {
     fi
 
     local archive="$download_root/lua-$version.tar.gz"
-    download "https://www.lua.org/ftp/lua-$version.tar.gz" "$archive"
+    if ! download "https://www.lua.org/ftp/lua-$version.tar.gz" "$archive"; then
+        return 1
+    fi
 
     src="$source_root/lua-$version"
     if [[ ! -d $src || $force -eq 1 ]]; then
@@ -150,7 +152,9 @@ build_luajit() {
     fi
 
     local archive="$download_root/LuaJIT-v2.1.tar.gz"
-    download "https://codeload.github.com/LuaJIT/LuaJIT/tar.gz/refs/heads/v2.1" "$archive"
+    if ! download "https://codeload.github.com/LuaJIT/LuaJIT/tar.gz/refs/heads/v2.1" "$archive"; then
+        return 1
+    fi
 
     local src="$source_root/LuaJIT-2.1"
     if [[ ! -d $src || $force -eq 1 ]]; then
