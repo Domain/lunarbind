@@ -3,11 +3,12 @@
 **A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.4.
 
 > Status: **early scaffold (v0.1)**. The core API, conversion layer, callbacks and
-> a first userdata/object model are implemented and compile on DMD-frontend
-> (LDC 1.43) against Lua 5.1–5.4 API profiles. The runtime smoke tests pass
-> against Lua 5.1–5.4 and LuaJIT 2.1 on Windows and Linux using the bundled test
-> scripts. References created inside callbacks share the owner state core, and
-> cross-state use is rejected. The public API is not frozen yet.
+> a first userdata/object model are implemented and compile with LDC 1.43 and
+> DMD 2.111 against Lua 5.1–5.4 API profiles. The runtime smoke tests pass
+> against Lua 5.1–5.4 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD)
+> using the bundled test scripts. References created inside callbacks share the
+> owner state core, and cross-state use is rejected. The public API is not frozen
+> yet.
 
 ## Why another binding?
 

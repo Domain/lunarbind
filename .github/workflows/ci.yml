@@ -45,12 +45,18 @@ jobs:
         run: dub test --config=${{ matrix.config }} --compiler=${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }}
 
   runtime-scripts:
-    name: runtime scripts / ldc
+    name: runtime scripts / ${{ matrix.dc }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dc:
+          - ldc-latest
+          - dmd-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dlang-community/setup-dlang@v1
         with:
-          compiler: ldc-latest
+          compiler: ${{ matrix.dc }}
       - name: Build and test all profiles from source
-        run: ./tools/test-lua.sh --compiler=ldc2
+        run: ./tools/test-lua.sh --compiler=${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }}

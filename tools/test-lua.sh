@@ -35,13 +35,25 @@ while (($#)); do
             IFS=, read -r -a profiles <<<"${2:?missing value for --profiles}"
             shift 2
             ;;
+        --profiles=*)
+            IFS=, read -r -a profiles <<<"${1#*=}"
+            shift
+            ;;
         --compiler)
             compiler=${2:?missing value for --compiler}
             shift 2
             ;;
+        --compiler=*)
+            compiler=${1#*=}
+            shift
+            ;;
         --dub)
             dub=${2:?missing value for --dub}
             shift 2
+            ;;
+        --dub=*)
+            dub=${1#*=}
+            shift
             ;;
         --force)
             force=1
