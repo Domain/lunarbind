@@ -58,8 +58,8 @@ void main()
 {
     auto L = LuaState.open();
 
-    registerFunction!greeter(L, "greet");
-    registerFunction!sum(L, "sum");
+    toLua!greeter(L, "greet");
+    toLua!sum(L);
     L.doString(`
         greet("world")
         greet()
@@ -67,9 +67,10 @@ void main()
     `);
 
     auto counter = new Counter(10);
-    // One call: constructor + every public static/instance method.
-    LuaClass!Counter.registerClass(L, "Counter");
-    LuaClass!Counter.setGlobal(L, "counter", counter);
+    // One call each: class table (constructor + static/instance methods) and
+    // the instance global. Default names come from the D identifiers.
+    toLua!Counter(L);
+    toLua!counter(L);
     L.doString(`
         counter:add(5)
         assert(counter:get() == 15)
@@ -85,7 +86,7 @@ void main()
     `);
 
     auto vec = Vec2(1.5, 2.5);
-    LuaStruct!Vec2.setGlobal(L, "vec", vec);
+    toLua!vec(L);
     L.doString(`
         vec.x = 2.5
         vec:scale(2)

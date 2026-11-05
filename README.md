@@ -44,6 +44,7 @@ source/lunarbind/
   table.d        LuaTable (registry-backed; get/set/opIndex/foreach, weak tables)
   function_.d    LuaFunction call/bind, callback wrappers, delegate boxing, registration
   module_.d      registerModule: bind all public functions in a D module
+  bind.d         toLua: unified registration for functions, classes, modules, enums, values
   coroutine.d    LuaThread: create/resume/yield/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
@@ -72,18 +73,18 @@ void main()
 
     // D function -> Lua
     int add(int a, int b) { return a + b; }
-    registerFunction!add(L, "add");
+    toLua!add(L);                    // global `add`, default name
     auto values = L.eval("return add(20, 22)");
 
     // Lua function -> D
     auto mul = L.loadString("return function(a, b) return a * b end").call!LuaValue();
     // or: auto f = L.getGlobal!LuaFunction("mul"); f.call!int(6, 7);
 
-    // D object -> Lua userdata; one call binds the constructor and all public
-    // static/instance methods.
+    // D object -> Lua userdata; one call binds the class table (constructor
+    // and every public static/instance method), another exports the instance.
     auto player = new Player(100, "bob");
-    LuaClass!Player.registerClass(L, "Player");
-    LuaClass!Player.setGlobal(L, "player", player);
+    toLua!Player(L);
+    toLua!player(L);
     L.doString("player:damage(5)");
     assert(player.hp == 95);
 
@@ -92,10 +93,63 @@ void main()
 }
 ```
 
-`registerModule!(some.module)(L, "name")` binds every public function in a D
-module as one Lua table, including overloads. Both helpers share the same
-default-argument, typesafe-variadic and `LuaState` injection rules as
-`registerFunction`.
+## Unified registration with `toLua`
+
+`toLua` is the recommended facade. It detects the symbol kind at compile time,
+uses `__traits(identifier, Symbol)` as the default global name, and returns a
+handle that matches the category:
+
+| D symbol | Lua value | returned handle |
+|---|---|---|
+| function / overload set | function | `LuaFunction` |
+| delegate / function pointer | function | `LuaFunction` |
+| class | class table | `LuaTable` |
+| module | function table | `LuaTable` |
+| enum type | `{ member = value }` | `LuaTable` |
+| instance / plain value | value | `LuaRef` |
+
+```d
+toLua!add(L);                     // global add
+toLua!add(L, "add2");             // rename
+toLua!freePick(L);                // overload set, dispatched by Lua args
+toLua!Player(L);                  // class table: Player(...) and methods
+toLua!player(L);                  // instance global
+toLua!(some.module)(L);           // module table, default name = last segment
+toLua!Color(L);                   // Color = { red = 0, green = 1, ... }
+
+auto fn = toLua!add(L);           // LuaFunction
+auto cls = toLua!Player(L);       // LuaTable
+auto ref_ = toLua!player(L);      // LuaRef
+
+// Runtime expressions have no identifier, so the name is required:
+toLua(L, 42, "answer");
+toLua(L, new Player(10, "bob"), "p");
+
+// UFCS works for both forms:
+L.toLua!add("add2");
+L.toLua(42, "answer");
+```
+
+The low-level APIs (`registerFunction`, `LuaClass!T.registerClass`,
+`LuaClass!T.setGlobal`, `registerModule`, `LuaStruct!S.setGlobal`) remain
+available. `toLua` is a facade over them:
+
+| Low-level | `toLua` |
+|---|---|
+| `registerFunction!f(L, "f")` | `toLua!f(L)` |
+| `LuaClass!T.registerClass(L, "T")` | `toLua!T(L)` |
+| `LuaClass!T.setGlobal(L, "obj", obj)` | `toLua!obj(L)` |
+| `registerModule!(m)(L, "m")` | `toLua!m(L)` |
+| `registerDelegate(L, "f", dg)` | `toLua(L, dg, "f")` |
+| `LuaStruct!S.setGlobal(L, "s", s)` | `toLua!s(L)` |
+
+Instance binding does not implicitly register the class table; call
+`toLua!Class(L)` when Lua needs the constructor or static methods.
+
+`toLua` uses the same default-argument, typesafe-variadic and `LuaState`
+injection rules as `registerFunction`. `registerModule!(some.module)(L, "name")`
+binds every public function in a D module as one Lua table, including
+overloads.
 
 Custom representations are registered per state and override the default
 `LuaStruct!S`/`LuaClass!T` conversion:
@@ -186,7 +240,7 @@ not need network access. `dub test` links against the selected Lua library.
 ## Design
 
 ```
-user API      LuaState / LuaTable / LuaFunction / LuaThread / LuaClass!T / LuaStruct!S / LuaValue
+user API      LuaState / LuaTable / LuaFunction / LuaThread / LuaClass!T / LuaStruct!S / LuaValue / toLua
 bind          extern(C) trampolines, registration, callbacks
 object        full userdata + metatable, fields/methods, GC rooting
 marshal       pushTo!T / popFrom!T, LuaRef, LuaString (zero-copy view)
@@ -232,28 +286,29 @@ Goals and non-goals:
 
 Implemented: D class → full userdata; `__index`/`__newindex` for public fields;
 public methods (`obj:method(...)`) including overloads selected by arity and Lua
-argument types; one-call class binding (`LuaClass!T.registerClass(L, "Name")`)
-that registers the constructor and all public static methods, with instance
-methods also callable as `Name.method(obj, ...)`; one-call module binding
-(`registerModule!(some.module)(L, "name")`) for all public free functions
-including overloads; `@property` getters/setters; class-typed fields and method
-parameters/results; inheritance-aware upcasts (a derived userdata is accepted as
-a base class, not vice versa); constructors from Lua through a registered class
-table (`Class(args...)`); `__tostring` from D `toString`; `__len` from a `length`
-field, property or zero-argument method; arithmetic, unary and comparison
-metamethods from `opBinary`, `opUnary` and `opCmp` (same-class operands);
-`__call` from `opCall`; `__index`/`__newindex` falling back to
-`opIndex`/`opIndexAssign`; D structs boxed as mutable userdata (`LuaStruct!S`)
-with field access, methods and operators; omitted trailing parameters filled
-from D default arguments; D typesafe variadics collected into an array; D enums
-converted through their base integer type; D `Tuple` results expanded into
-multiple Lua returns; `LuaState` parameters
-injected into callbacks; weak-key/weak-value tables (`LuaWeakness`); coroutine
-creation and resumption through `LuaThread`; `__gc`; `__eq`; D → Lua and Lua → D
-identity; weak-value identity tables so repeated pushes reuse the same userdata;
-reference-counted GC roots across states and class views. Custom per-state
-codecs (`registerCodec!T`) override the default class/struct representation and
-participate in overload selection through their `check` predicate.
+argument types; unified registration through `toLua` (functions, overload sets,
+classes, instances, modules, enum tables and plain values) with one-call class
+binding that registers the constructor and all public static methods, instance
+methods also callable as `Name.method(obj, ...)`, and one-call module binding
+for all public free functions including overloads; `@property` getters/setters;
+class-typed fields and method parameters/results; inheritance-aware upcasts (a
+derived userdata is accepted as a base class, not vice versa); constructors from
+Lua through a registered class table (`Class(args...)`); `__tostring` from D
+`toString`; `__len` from a `length` field, property or zero-argument method;
+arithmetic, unary and comparison metamethods from `opBinary`, `opUnary` and
+`opCmp` (same-class operands); `__call` from `opCall`; `__index`/`__newindex`
+falling back to `opIndex`/`opIndexAssign`; D structs boxed as mutable userdata
+(`LuaStruct!S`) with field access, methods and operators; omitted trailing
+parameters filled from D default arguments; D typesafe variadics collected into
+an array; D enums converted through their base integer type (and optionally
+exported as `{ name = value }` tables); D `Tuple` results expanded into multiple
+Lua returns; `LuaState` parameters injected into callbacks; weak-key/weak-value
+tables (`LuaWeakness`); coroutine creation and resumption through `LuaThread`;
+`__gc`; `__eq`; D → Lua and Lua → D identity; weak-value identity tables so
+repeated pushes reuse the same userdata; reference-counted GC roots across
+states and class views. Custom per-state codecs (`registerCodec!T`) override the
+default class/struct representation and participate in overload selection
+through their `check` predicate.
 
 Not yet: C-style/D-style variadics. These are deliberately listed on the roadmap
 rather than half-implemented.
@@ -262,9 +317,13 @@ rather than half-implemented.
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
-2. **Tooling**: `@LuaExport`/module builder as a single source for registration
-   and EmmyLua output, benchmarks, docs.
-3. **Lua 5.5** binding profile.
+2. **Struct type tables**: `toLua!MyStruct(L)` currently rejects struct types;
+   bind a value instead. A future type table can expose public static methods
+   without a constructor.
+3. **`@LuaExport`**: UDA-driven naming/member filtering and EmmyLua stub
+   generation, building on `toLua`.
+4. **Tooling**: benchmarks, docs, module builder.
+5. **Lua 5.5** binding profile.
 
 ## License
 

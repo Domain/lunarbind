@@ -1266,6 +1266,88 @@ unittest
     assert(moduleResult[3].stringValue == "int");
     assert(moduleResult[4].stringValue == "string:x");
 
+    // Unified toLua facade: symbol kind is detected at compile time and the
+    // returned handle matches the category.
+    auto toLuaFn = toLua!add(L);
+    assert(toLuaFn.call!int(20, 22) == 42);
+
+    auto toLuaAliasFn = toLua!add(L, "toLuaAliasAdd");
+    assert(toLuaAliasFn.call!int(1, 2) == 3);
+
+    auto toLuaPickFn = toLua!freePick(L);
+    assert(toLuaPickFn.call!string(7) == "int");
+    assert(toLuaPickFn.call!string("x") == "string:x");
+
+    auto toLuaClass = toLua!AutoBound(L);
+    assert(toLuaClass.get!LuaFunction("twice").call!int(21) == 42);
+    L.doString("
+        local obj = AutoBound(3)
+        obj:add(4)
+        assert(obj.value == 7)
+    ");
+
+    auto toLuaInstance = new AutoBound(5);
+    auto toLuaInstanceRef = toLua!toLuaInstance(L);
+    assert(toLuaInstanceRef.type() == LuaType.userdata);
+    L.doString("toLuaInstance:add(2)");
+    assert(toLuaInstance.value == 7);
+
+    auto toLuaRuntimeInstance = new AutoBound(9);
+    auto toLuaRuntimeInstanceRef = toLua(L, toLuaRuntimeInstance, "toLuaRuntimeInstance");
+    assert(toLuaRuntimeInstanceRef.type() == LuaType.userdata);
+    L.doString("toLuaRuntimeInstance:add(1)");
+    assert(toLuaRuntimeInstance.value == 10);
+
+    auto toLuaModule = toLua!(lunarbind.tests)(L, "toLuaModule");
+    assert(toLuaModule.get!LuaFunction("add").call!int(20, 22) == 42);
+    assert(toLuaModule.get!LuaFunction("freePick").call!string(7) == "int");
+
+    auto toLuaDefaultModule = toLua!(lunarbind.tests)(L);
+    assert(toLuaDefaultModule.get!LuaFunction("add").call!int(1, 2) == 3);
+    assert(L.getGlobal!LuaTable("tests").get!LuaFunction("add").call!int(2, 3) == 5);
+
+    auto toLuaEnum = toLua!Color(L);
+    assert(toLuaEnum.get!int("red") == 0);
+    assert(toLuaEnum.get!int("green") == 1);
+    assert(toLuaEnum.get!int("blue") == 2);
+
+    auto toLuaValueRef = toLua(L, 42, "toLuaRuntimeAnswer");
+    auto toLuaValueKind = toLuaValueRef.type();
+    assert(toLuaValueKind == LuaType.integer || toLuaValueKind == LuaType.number);
+    assert(L.getGlobal!int("toLuaRuntimeAnswer") == 42);
+
+    L.toLua!add("toLuaUfcsAdd");
+    assert(asInt(L.eval("return toLuaUfcsAdd(2, 3)")[0]) == 5);
+    L.toLua("ufcs", "toLuaUfcsValue");
+    assert(L.getGlobal!string("toLuaUfcsValue") == "ufcs");
+
+    auto toLuaDelegate = (int x) => x * 2;
+    auto toLuaDelegateFn = toLua(L, toLuaDelegate, "toLuaDouble");
+    assert(toLuaDelegateFn.call!int(21) == 42);
+    auto toLuaNamedDelegateFn = toLua!toLuaDelegate(L, "toLuaDouble2");
+    assert(toLuaNamedDelegateFn.call!int(21) == 42);
+
+    auto toLuaEnumValueRef = toLua!(Color.green)(L);
+    auto toLuaEnumValueKind = toLuaEnumValueRef.type();
+    assert(toLuaEnumValueKind == LuaType.integer || toLuaEnumValueKind == LuaType.number);
+    assert(L.getGlobal!int("green") == 1);
+
+    auto bindPoint = Point(1, 2);
+    auto toLuaPointRef = toLua!bindPoint(L);
+    assert(toLuaPointRef.type() == LuaType.userdata);
+    L.doString("assert(bindPoint.x == 1); bindPoint.x = 9");
+    assert(bindPoint.x == 1); // Lua mutated only the boxed copy
+
+    static assert(is(typeof(toLua!add(L)) == LuaFunction));
+    static assert(is(typeof(toLua!AutoBound(L)) == LuaTable));
+    static assert(is(typeof(toLua!(lunarbind.tests)(L)) == LuaTable));
+    static assert(is(typeof(toLua!Color(L)) == LuaTable));
+    static assert(is(typeof(toLua(L, 1, "toLuaTypeProbe")) == LuaRef));
+    static assert(is(typeof(toLua(L, (int x) => x, "toLuaTypeProbe")) == LuaFunction));
+
+    static assert(!__traits(compiles, toLua!Point(L)),
+                  "struct type binding is a documented future extension");
+
     // a wrapper must share the owner's core
     auto wrapped = LuaState.wrap(L.handle);
     assert(wrapped.sharesState(L));

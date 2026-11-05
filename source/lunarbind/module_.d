@@ -10,6 +10,7 @@ static import raw = lunarbind.raw;
 import lunarbind.state;
 import lunarbind.dispatch : fillCallArgs, pushCallResult;
 import lunarbind.object : callMatches, isExposedName, overloadBindable;
+import lunarbind.table : LuaTable;
 
 import std.string : toStringz;
 import std.traits : Parameters, ReturnType;
@@ -39,14 +40,14 @@ private template anyModuleOverloadBindable(alias Module, string member, size_t i
         enum anyModuleOverloadBindable = false;
 }
 
-private extern(C) int moduleFunctionThunk(alias Module, string member)(lua_State* L) nothrow
+package extern(C) int functionSetThunk(alias Parent, string member)(lua_State* L) nothrow
 {
     try
     {
         auto state = LuaState.wrap(L);
         auto nargs = cast(size_t) lua_gettop(L);
 
-        static foreach (i, F; __traits(getOverloads, Module, member))
+        static foreach (i, F; __traits(getOverloads, Parent, member))
         {{
             static if (overloadBindable!F)
             {
@@ -79,23 +80,36 @@ private extern(C) int moduleFunctionThunk(alias Module, string member)(lua_State
     }
 }
 
+/// Push a set of same-named functions as one Lua function.
+///
+/// The wrapper selects an overload by arity and Lua argument types, using the
+/// same rules as `registerFunction`. `Parent` is normally a module, but any
+/// symbol whose `__traits(getOverloads, Parent, member)` yields callable
+/// functions works.
+package void pushFunctionSet(alias Parent, string member)(LuaState state)
+{
+    pushCFunction(state.handle, &functionSetThunk!(Parent, member));
+}
+
 /// Bind every public function in `Module` as a field of a new global table.
 ///
 /// Private members, `main`, non-functions and function templates that cannot
 /// be instantiated from Lua are ignored. Public overloads with the same name
 /// are dispatched by arity and Lua argument types, with the same default
 /// argument, typesafe variadic and `LuaState` injection rules as
-/// `registerFunction`.
-void registerModule(alias Module)(LuaState state, string name)
+/// `registerFunction`. Returns a handle to the new table.
+LuaTable registerModule(alias Module)(LuaState state, string name)
 {
     lua_createtable(state.handle, 0, 0);
     static foreach (member; __traits(allMembers, Module))
     {{
         static if (moduleMemberBindable!(Module, member))
         {
-            pushCFunction(state.handle, &moduleFunctionThunk!(Module, member));
+            pushFunctionSet!(Module, member)(state);
             lua_setfield(state.handle, -2, toStringz(member));
         }
     }}
+    auto ref_ = LuaRef.make(state, -1);
     raw.setGlobal(state.handle, toStringz(name));
+    return LuaTable(ref_);
 }

@@ -10,6 +10,7 @@
 ///   - `LuaState` parameters are injected into bound D callbacks
 ///   - `LuaClass!T` D-class <-> Lua userdata binding
 ///   - `LuaStruct!S` D-struct <-> mutable Lua userdata box binding
+///   - `toLua` unified registration for functions, classes, modules, enums and values
 ///   - `registerFunction` / `registerLibrary` callback registration
 module lunarbind;
 
@@ -23,6 +24,7 @@ public import lunarbind.function_;
 public import lunarbind.module_;
 public import lunarbind.coroutine;
 public import lunarbind.object;
+public import lunarbind.bind;
 
 version (unittest)
     public import lunarbind.tests;

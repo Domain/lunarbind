@@ -1466,8 +1466,9 @@ struct LuaClass(T)
     /// constructor. Every public static method becomes a field of the table;
     /// public instance methods are available both as `obj:method(...)` and as
     /// `name.method(obj, ...)`. Fields and properties are reached through the
-    /// instance metatable. `name` defaults to the D class name.
-    static void bind(LuaState state, string name = T.stringof)
+    /// instance metatable. `name` defaults to the D class name. Returns a
+    /// handle to the new table.
+    static LuaTable bind(LuaState state, string name = T.stringof)
     {
         auto L = state.handle;
         ensureMetatable(state);
@@ -1499,7 +1500,9 @@ struct LuaClass(T)
             }
         }}
 
+        auto ref_ = LuaRef.make(state, -1);
         raw.setGlobal(L, toStringz(name));
+        return LuaTable(ref_);
     }
 
     /// Register a global callable class table so Lua can construct instances
