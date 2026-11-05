@@ -44,7 +44,7 @@ source/lunarbind/
   table.d        LuaTable (registry-backed; get/set/opIndex/foreach, weak tables)
   function_.d    LuaFunction call/bind, callback wrappers, delegate boxing, registration
   module_.d      registerModule: bind all public functions in a D module
-  bind.d         toLua: unified registration for functions, classes, modules, enums, values
+  bind.d         toLua: unified registration for functions, classes, struct type tables, modules, enums, values
   coroutine.d    LuaThread: create/resume/yield/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
@@ -104,6 +104,7 @@ handle that matches the category:
 | function / overload set | function | `LuaFunction` |
 | delegate / function pointer | function | `LuaFunction` |
 | class | class table | `LuaTable` |
+| struct | static-method table | `LuaTable` |
 | module | function table | `LuaTable` |
 | enum type | `{ member = value }` | `LuaTable` |
 | instance / plain value | value | `LuaRef` |
@@ -113,6 +114,7 @@ toLua!add(L);                     // global add
 toLua!add(L, "add2");             // rename
 toLua!freePick(L);                // overload set, dispatched by Lua args
 toLua!Player(L);                  // class table: Player(...) and methods
+toLua!MyStruct(L);                // type table: public static methods only
 toLua!player(L);                  // instance global
 toLua!(some.module)(L);           // module table, default name = last segment
 toLua!Color(L);                   // Color = { red = 0, green = 1, ... }
@@ -141,10 +143,13 @@ available. `toLua` is a facade over them:
 | `LuaClass!T.setGlobal(L, "obj", obj)` | `toLua!obj(L)` |
 | `registerModule!(m)(L, "m")` | `toLua!m(L)` |
 | `registerDelegate(L, "f", dg)` | `toLua(L, dg, "f")` |
+| `LuaStruct!S.bind(L, "S")` | `toLua!S(L)` |
 | `LuaStruct!S.setGlobal(L, "s", s)` | `toLua!s(L)` |
 
 Instance binding does not implicitly register the class table; call
-`toLua!Class(L)` when Lua needs the constructor or static methods.
+`toLua!Class(L)` when Lua needs the constructor or static methods. Struct type
+tables expose public static methods only; bind struct values separately with
+`toLua!value(L)` or `LuaStruct!S.setGlobal`.
 
 `toLua` uses the same default-argument, typesafe-variadic and `LuaState`
 injection rules as `registerFunction`. `registerModule!(some.module)(L, "name")`
@@ -287,10 +292,12 @@ Goals and non-goals:
 Implemented: D class → full userdata; `__index`/`__newindex` for public fields;
 public methods (`obj:method(...)`) including overloads selected by arity and Lua
 argument types; unified registration through `toLua` (functions, overload sets,
-classes, instances, modules, enum tables and plain values) with one-call class
-binding that registers the constructor and all public static methods, instance
-methods also callable as `Name.method(obj, ...)`, and one-call module binding
-for all public free functions including overloads; `@property` getters/setters;
+classes, struct type tables, instances, modules, enum tables and plain values)
+with one-call class binding that registers the constructor and all public static
+methods, struct type tables that expose public static methods without a
+constructor, instance methods also callable as `Name.method(obj, ...)`, and
+one-call module binding for all public free functions including overloads;
+`@property` getters/setters;
 class-typed fields and method parameters/results; inheritance-aware upcasts (a
 derived userdata is accepted as a base class, not vice versa); constructors from
 Lua through a registered class table (`Class(args...)`); `__tostring` from D
@@ -317,13 +324,10 @@ rather than half-implemented.
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
-2. **Struct type tables**: `toLua!MyStruct(L)` currently rejects struct types;
-   bind a value instead. A future type table can expose public static methods
-   without a constructor.
-3. **`@LuaExport`**: UDA-driven naming/member filtering and EmmyLua stub
+2. **`@LuaExport`**: UDA-driven naming/member filtering and EmmyLua stub
    generation, building on `toLua`.
-4. **Tooling**: benchmarks, docs, module builder.
-5. **Lua 5.5** binding profile.
+3. **Tooling**: benchmarks, docs, module builder.
+4. **Lua 5.5** binding profile.
 
 ## License
 

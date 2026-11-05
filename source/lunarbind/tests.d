@@ -353,6 +353,21 @@ struct Point
         y += dy;
     }
 
+    static int dimensions()
+    {
+        return 2;
+    }
+
+    static string describe(int value)
+    {
+        return "int";
+    }
+
+    static string describe(string value)
+    {
+        return "string:" ~ value;
+    }
+
     Point opBinary(string op)(Point other) const
         if (op == "+" || op == "-")
     {
@@ -1338,15 +1353,22 @@ unittest
     L.doString("assert(bindPoint.x == 1); bindPoint.x = 9");
     assert(bindPoint.x == 1); // Lua mutated only the boxed copy
 
+    // Struct type tables expose public static methods. Struct values stay
+    // value-only and are bound separately.
+    auto toLuaPointType = toLua!Point(L);
+    assert(toLuaPointType.get!LuaFunction("dimensions").call!int() == 2);
+    assert(toLuaPointType.get!LuaFunction("describe").call!string(7) == "int");
+    assert(toLuaPointType.get!LuaFunction("describe").call!string("x") == "string:x");
+    assert(asInt(L.eval("return Point.dimensions()")[0]) == 2);
+    assert(L.eval("return Point.describe('y')")[0].stringValue == "string:y");
+
     static assert(is(typeof(toLua!add(L)) == LuaFunction));
     static assert(is(typeof(toLua!AutoBound(L)) == LuaTable));
     static assert(is(typeof(toLua!(lunarbind.tests)(L)) == LuaTable));
     static assert(is(typeof(toLua!Color(L)) == LuaTable));
+    static assert(is(typeof(toLua!Point(L)) == LuaTable));
     static assert(is(typeof(toLua(L, 1, "toLuaTypeProbe")) == LuaRef));
     static assert(is(typeof(toLua(L, (int x) => x, "toLuaTypeProbe")) == LuaFunction));
-
-    static assert(!__traits(compiles, toLua!Point(L)),
-                  "struct type binding is a documented future extension");
 
     // a wrapper must share the owner's core
     auto wrapped = LuaState.wrap(L.handle);

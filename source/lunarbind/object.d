@@ -1662,4 +1662,31 @@ struct LuaStruct(S)
             return false;
         return lua_rawequal(state.handle, -1, -2) != 0;
     }
+
+    /// Bind this struct type as a global type table in one call.
+    ///
+    /// Every public static method becomes a field of the table. Struct values
+    /// remain value-only and are bound with `push`, `setGlobal` or
+    /// `toLua(L, value, name)`. The type table has no constructor because a
+    /// struct has no object identity; create boxes from D or through a codec.
+    /// `name` defaults to the D struct name. Returns a handle to the new table.
+    static LuaTable bind(LuaState state, string name = S.stringof)
+    {
+        lua_createtable(state.handle, 0, 0);
+        static foreach (member; __traits(allMembers, S))
+        {{
+            static if (isPublicMember!(S, member) && isExposedName!member)
+            {
+                static if (staticMethodBindable!(S, member))
+                {
+                    pushCFunction(state.handle, &staticMethodThunk!(S, member));
+                    lua_setfield(state.handle, -2, toStringz(member));
+                }
+            }
+        }}
+
+        auto ref_ = LuaRef.make(state, -1);
+        raw.setGlobal(state.handle, toStringz(name));
+        return LuaTable(ref_);
+    }
 }

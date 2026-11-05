@@ -38,6 +38,11 @@ struct Vec2
         x *= factor;
         y *= factor;
     }
+
+    static Vec2 origin()
+    {
+        return Vec2(0, 0);
+    }
 }
 
 int greeter(string name = "world")
@@ -86,8 +91,12 @@ void main()
     `);
 
     auto vec = Vec2(1.5, 2.5);
+    toLua!Vec2(L); // struct type table: public static methods only
     toLua!vec(L);
     L.doString(`
+        local origin = Vec2.origin()
+        assert(origin.x == 0 and origin.y == 0)
+
         vec.x = 2.5
         vec:scale(2)
         assert(vec.x == 5 and vec.y == 5)

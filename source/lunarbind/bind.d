@@ -3,21 +3,23 @@
 /// `toLua!Symbol(L)` exports a D symbol as a Lua global. The symbol's kind is
 /// detected at compile time:
 ///
-/// | D symbol                 | Lua value          | returned handle |
-/// |--------------------------|--------------------|-----------------|
-/// | function / overload set  | function           | `LuaFunction`   |
-/// | delegate / function ptr  | function           | `LuaFunction`   |
-/// | class                    | class table        | `LuaTable`      |
-/// | module                   | function table     | `LuaTable`      |
-/// | enum type                | `{ member = value }` | `LuaTable`    |
-/// | instance / plain value   | value              | `LuaRef`        |
+/// | D symbol                 | Lua value            | returned handle |
+/// |--------------------------|----------------------|-----------------|
+/// | function / overload set  | function             | `LuaFunction`   |
+/// | delegate / function ptr  | function             | `LuaFunction`   |
+/// | class                    | class table          | `LuaTable`      |
+/// | struct                   | static-method table  | `LuaTable`      |
+/// | module                   | function table       | `LuaTable`      |
+/// | enum type                | `{ member = value }` | `LuaTable`      |
+/// | instance / plain value   | value                | `LuaRef`        |
 ///
 /// The default name comes from `__traits(identifier, Symbol)`. Runtime values
 /// have no symbol name, so they require an explicit name:
 /// `toLua(L, value, "name")`.
 ///
-/// Struct types are not bound yet; bind a struct value instead. `@LuaExport`
-/// for naming and member filtering is a planned extension.
+/// Struct type tables expose public static methods only; struct values are
+/// bound separately and remain value-only. `@LuaExport` for naming and member
+/// filtering is a planned extension.
 module lunarbind.bind;
 
 static import raw = lunarbind.raw;
@@ -26,7 +28,7 @@ import lunarbind.conv;
 import lunarbind.table : LuaTable;
 import lunarbind.function_ : LuaFunction, pushFunction, pushDelegate;
 import lunarbind.module_ : pushFunctionSet, registerModule;
-import lunarbind.object : LuaClass;
+import lunarbind.object : LuaClass, LuaStruct;
 
 import std.string : toStringz;
 import std.traits : isSomeFunction;
@@ -106,6 +108,11 @@ private LuaTable bindClass(alias T)(LuaState state, string name)
     return LuaClass!T.bind(state, name);
 }
 
+private LuaTable bindStruct(alias S)(LuaState state, string name)
+{
+    return LuaStruct!S.bind(state, name);
+}
+
 private LuaTable bindModule(alias Module)(LuaState state, string name)
 {
     return registerModule!Module(state, name);
@@ -132,11 +139,13 @@ auto toLua(alias Symbol)(LuaState state, string name = defaultLuaName!Symbol)
     {
         static if (is(Symbol == class))
             return bindClass!Symbol(state, name);
+        else static if (is(Symbol == struct))
+            return bindStruct!Symbol(state, name);
         else static if (is(Symbol == enum))
             return registerEnum!Symbol(state, name);
-        else static if (is(Symbol == struct) || is(Symbol == union))
+        else static if (is(Symbol == union))
             static assert(0,
-                          "lunarbind: toLua cannot bind the type " ~ Symbol.stringof ~
+                          "lunarbind: toLua cannot bind the union type " ~ Symbol.stringof ~
                           " yet; bind a value with toLua(L, value, name)");
         else
             static assert(0, "lunarbind: toLua does not support type " ~ Symbol.stringof);
