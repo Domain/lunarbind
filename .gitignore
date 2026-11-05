@@ -1,5 +1,6 @@
 .dub/
 .dub-home/
+.lua/
 dub.selections.json
 *.obj
 *.o

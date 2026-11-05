@@ -190,7 +190,6 @@ else
     extern(C) nothrow @nogc
     {
         int  lua_absindex(lua_State* L, int idx);
-        void lua_rotate(lua_State* L, int idx, int n);
         void lua_copy(lua_State* L, int fromidx, int toidx);
         int  lua_pcallk(lua_State* L, int nargs, int nresults, int errfunc,
                         lua_KContext ctx, lua_KFunction k);
@@ -211,10 +210,21 @@ else
         void luaL_traceback(lua_State* L, lua_State* L1, const(char)* msg, int level);
     }
 
+    static if (LUA_VERSION_NUM == 502)
+    {
+        extern(C) nothrow @nogc
+        {
+            void lua_insert(lua_State* L, int idx);
+            void lua_remove(lua_State* L, int idx);
+            void lua_replace(lua_State* L, int idx);
+        }
+    }
+
     static if (LUA_VERSION_NUM >= 503)
     {
         extern(C) nothrow @nogc
         {
+            void lua_rotate(lua_State* L, int idx, int n);
             int  lua_isinteger(lua_State* L, int idx);
             int  lua_geti(lua_State* L, int idx, lua_Integer n);
             void lua_seti(lua_State* L, int idx, lua_Integer n);
@@ -377,7 +387,12 @@ else
         static if (LUA_VERSION_NUM == 501)
             return lua_resume(L, nargs);
         else static if (LUA_VERSION_NUM >= 504)
-            return lua_resume(L, from, nargs, nresults);
+        {
+            // Lua 5.4 dereferences nresults unconditionally.
+            int localResults;
+            return lua_resume(L, from, nargs,
+                              nresults is null ? &localResults : nresults);
+        }
         else
             return lua_resume(L, from, nargs);
     }
@@ -408,7 +423,7 @@ else
 
     void insert(lua_State* L, int idx)
     {
-        static if (LUA_VERSION_NUM == 501)
+        static if (LUA_VERSION_NUM <= 502)
             lua_insert(L, idx);
         else
             lua_rotate(L, idx, 1);
@@ -416,7 +431,7 @@ else
 
     void remove(lua_State* L, int idx)
     {
-        static if (LUA_VERSION_NUM == 501)
+        static if (LUA_VERSION_NUM <= 502)
             lua_remove(L, idx);
         else
         {
@@ -427,7 +442,7 @@ else
 
     void replace(lua_State* L, int idx)
     {
-        static if (LUA_VERSION_NUM == 501)
+        static if (LUA_VERSION_NUM <= 502)
             lua_replace(L, idx);
         else
         {

@@ -46,9 +46,9 @@ struct LuaValue
                 static if (LUA_VERSION_NUM >= 503)
                 {
                     if (lua_isinteger(state.handle, idx))
-                        return LuaValue(cast(lua_Integer) lua_tointeger(state.handle, idx));
+                        return LuaValue(cast(lua_Integer) toIntegerX(state.handle, idx, null));
                 }
-                return LuaValue(cast(lua_Number) lua_tonumber(state.handle, idx));
+                return LuaValue(cast(lua_Number) toNumberX(state.handle, idx, null));
             case LUA_TSTRING:
             {
                 size_t len;

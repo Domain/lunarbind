@@ -20,6 +20,7 @@ public import lunarbind.value;
 public import lunarbind.conv;
 public import lunarbind.table;
 public import lunarbind.function_;
+public import lunarbind.module_;
 public import lunarbind.coroutine;
 public import lunarbind.object;
 

@@ -21,6 +21,11 @@ class Counter
     {
         return value;
     }
+
+    static int schemaVersion()
+    {
+        return 2;
+    }
 }
 
 struct Vec2
@@ -62,15 +67,17 @@ void main()
     `);
 
     auto counter = new Counter(10);
-    LuaClass!Counter.registerClass(L);
+    // One call: constructor + every public static/instance method.
+    LuaClass!Counter.registerClass(L, "Counter");
     LuaClass!Counter.setGlobal(L, "counter", counter);
     L.doString(`
         counter:add(5)
         assert(counter:get() == 15)
+        assert(Counter.schemaVersion() == 2)
+        assert(Counter.get(counter) == 15)
     `);
     assert(counter.value == 15);
 
-    LuaClass!Counter.registerConstructor(L, "Counter");
     L.doString(`
         local made = Counter(2)
         made:add(3)

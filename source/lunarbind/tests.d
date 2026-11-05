@@ -148,6 +148,47 @@ class Overloaded
     }
 }
 
+class AutoBound
+{
+    int value;
+
+    this(int value)
+    {
+        this.value = value;
+    }
+
+    int add(int amount)
+    {
+        value += amount;
+        return value;
+    }
+
+    static int twice(int value)
+    {
+        return value * 2;
+    }
+
+    static string label()
+    {
+        return "auto";
+    }
+
+    static string overloaded(int value)
+    {
+        return "int";
+    }
+
+    static string overloaded(string value)
+    {
+        return "string:" ~ value;
+    }
+
+    private static int hidden()
+    {
+        return 1;
+    }
+}
+
 class Bag
 {
     int[] items;
@@ -497,6 +538,10 @@ string joinVariadic(string separator, string[] parts...)
     }
     return result;
 }
+
+string freePick(int value) { return "int"; }
+string freePick(string value) { return "string:" ~ value; }
+private int hiddenFree() { return 1; }
 
 Tuple!(int, string) describe(int value)
 {
@@ -1064,6 +1109,43 @@ unittest
     auto speak = L.eval("return dog:speak(), animal:speak()");
     assert(speak[0].stringValue == "woof");
     assert(speak[1].stringValue == "woof");
+
+    // One-call class binding exposes the constructor and every public method.
+    LuaClass!AutoBound.registerClass(L, "AutoBound");
+    auto autoBound = L.eval("
+        local obj = AutoBound(10)
+        obj:add(5)
+        assert(AutoBound.hidden == nil)
+        return obj.value,
+               AutoBound.twice(21),
+               AutoBound.label(),
+               AutoBound.overloaded(7),
+               AutoBound.overloaded('x'),
+               AutoBound.add(obj, 1)
+    ");
+    assert(asInt(autoBound[0]) == 15);
+    assert(asInt(autoBound[1]) == 42);
+    assert(autoBound[2].stringValue == "auto");
+    assert(autoBound[3].stringValue == "int");
+    assert(autoBound[4].stringValue == "string:x");
+    assert(asInt(autoBound[5]) == 16);
+
+    // All public functions in a module can be bound in one call, including
+    // overloads; private functions stay hidden.
+    registerModule!(lunarbind.tests)(L, "testlib");
+    auto moduleResult = L.eval("
+        assert(testlib.hiddenFree == nil)
+        return testlib.add(20, 22),
+               testlib.addDefault(1),
+               testlib.sumVariadic(1, 2, 3),
+               testlib.freePick(7),
+               testlib.freePick('x')
+    ");
+    assert(asInt(moduleResult[0]) == 42);
+    assert(asInt(moduleResult[1]) == 11);
+    assert(asInt(moduleResult[2]) == 6);
+    assert(moduleResult[3].stringValue == "int");
+    assert(moduleResult[4].stringValue == "string:x");
 
     // a wrapper must share the owner's core
     auto wrapped = LuaState.wrap(L.handle);

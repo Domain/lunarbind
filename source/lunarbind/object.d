@@ -71,7 +71,7 @@ private template isPublicOverload(alias F)
         enum isPublicOverload = false;
 }
 
-private template isExposedName(string member)
+package template isExposedName(string member)
 {
     enum isExposedName =
         member.length > 0
@@ -117,7 +117,7 @@ private template isBindableReturn(T)
         enum isBindableReturn = isBindableType!T;
 }
 
-private template overloadBindable(alias Method)
+package template overloadBindable(alias Method)
 {
     static if (__traits(compiles, Parameters!Method)
                && __traits(compiles, ReturnType!Method)
@@ -143,6 +143,23 @@ private template methodBindable(T, string member, size_t i = 0)
     }
     else
         enum methodBindable = false;
+}
+
+private template staticMethodBindable(T, string member, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, member)))
+    {
+        alias overloads = __traits(getOverloads, T, member);
+        static if (i < overloads.length)
+            enum staticMethodBindable =
+                (__traits(isStaticFunction, overloads[i])
+                 && overloadBindable!(overloads[i]))
+                || staticMethodBindable!(T, member, i + 1);
+        else
+            enum staticMethodBindable = false;
+    }
+    else
+        enum staticMethodBindable = false;
 }
 
 private template allBindable(Params...)
@@ -183,7 +200,7 @@ private template toStringBindable(T, size_t i = 0)
 // mirrors `popFrom` only closely enough to avoid picking an obviously wrong
 // candidate; e.g. both `int` and `string` accept a Lua number, and the first
 // matching overload wins.
-private bool luaArgMatches(T)(LuaState state, int idx)
+package bool luaArgMatches(T)(LuaState state, int idx)
 {
     auto t = lua_type(state.handle, idx);
     static if (is(T == LuaValue))
@@ -238,7 +255,7 @@ private bool luaArgMatches(T)(LuaState state, int idx)
 
 // Match a Lua call against a D function's declared parameters, including
 // omitted trailing defaults and a typesafe variadic tail.
-private bool callMatches(alias F)(LuaState state, int startIdx, size_t nargs)
+package bool callMatches(alias F)(LuaState state, int startIdx, size_t nargs)
 {
     static if (!bindableVariadic!F)
         return false;
@@ -1261,6 +1278,71 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
     }
 }
 
+// Class-table entry for an instance method: `Class.method(obj, ...)`. The
+// metatable path calls `methodThunk` directly, but a table lookup can be
+// invoked with any first argument, so validate the receiver first.
+private extern(C) int classTableMethodThunk(T, string member)(lua_State* L) nothrow
+{
+    try
+    {
+        auto state = LuaState.wrap(L);
+        if (!LuaClass!T.isInstance(state, 1))
+        {
+            auto msg = "expected " ~ T.stringof ~ " userdata as self";
+            lua_pushlstring(L, msg.ptr, msg.length);
+            return lua_error(L);
+        }
+        return methodThunk!(T, member)(L);
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
+// Class-table entry for a static method: no receiver is consumed.
+private extern(C) int staticMethodThunk(T, string member)(lua_State* L) nothrow
+{
+    try
+    {
+        auto state = LuaState.wrap(L);
+        auto nargs = cast(size_t) lua_gettop(L);
+
+        static foreach (i, Method; __traits(getOverloads, T, member))
+        {{
+            static if (__traits(isStaticFunction, Method) && overloadBindable!Method)
+            {
+                alias Params = Parameters!Method;
+                if (callMatches!Method(state, 1, nargs))
+                {
+                    Tuple!Params args;
+                    fillCallArgs!Method(state, args, nargs, 1);
+
+                    static if (is(ReturnType!Method == void))
+                    {
+                        Method(args.expand);
+                        return 0;
+                    }
+                    else
+                    {
+                        return pushCallResult(state, Method(args.expand));
+                    }
+                }
+            }
+        }}
+
+        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member;
+        lua_pushlstring(L, msg.ptr, msg.length);
+        return lua_error(L);
+    }
+    catch (Throwable e)
+    {
+        lua_pushlstring(L, e.msg.ptr, e.msg.length);
+        return lua_error(L);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public class binding
 // ---------------------------------------------------------------------------
@@ -1374,21 +1456,56 @@ struct LuaClass(T)
         return lua_type(state.handle, -1) != LUA_TNIL;
     }
 
+    /// Bind this class as a global class table in one call.
+    ///
+    /// The table is callable as `name(args...)` when the class has a bindable
+    /// constructor. Every public static method becomes a field of the table;
+    /// public instance methods are available both as `obj:method(...)` and as
+    /// `name.method(obj, ...)`. Fields and properties are reached through the
+    /// instance metatable. `name` defaults to the D class name.
+    static void bind(LuaState state, string name = T.stringof)
+    {
+        auto L = state.handle;
+        ensureMetatable(state);
+        raw.pop(L, 1);
+
+        lua_createtable(L, 0, 0);
+        static if (hasBindableConstructor!T)
+        {
+            lua_createtable(L, 0, 1);
+            pushCFunction(L, &constructorThunk!T);
+            lua_setfield(L, -2, "__call");
+            lua_setmetatable(L, -2);
+        }
+
+        static foreach (member; __traits(allMembers, T))
+        {{
+            static if (isPublicMember!(T, member) && isExposedName!member)
+            {
+                static if (staticMethodBindable!(T, member))
+                {
+                    pushCFunction(L, &staticMethodThunk!(T, member));
+                    lua_setfield(L, -2, toStringz(member));
+                }
+                else static if (methodBindable!(T, member))
+                {
+                    pushCFunction(L, &classTableMethodThunk!(T, member));
+                    lua_setfield(L, -2, toStringz(member));
+                }
+            }
+        }}
+
+        raw.setGlobal(L, toStringz(name));
+    }
+
     /// Register a global callable class table so Lua can construct instances
-    /// with `name(args...)`. Overloads are selected by arity and Lua argument
-    /// types, then converted through `popFrom`.
+    /// with `name(args...)`. This also exposes all public methods; see `bind`.
     static void registerConstructor(LuaState state, string name)
     {
         static assert(hasBindableConstructor!T,
                       "lunarbind: " ~ T.stringof ~
                       " has no constructor with bindable parameters");
-        auto L = state.handle;
-        lua_createtable(L, 0, 0);
-        lua_createtable(L, 0, 1);
-        pushCFunction(L, &constructorThunk!T);
-        lua_setfield(L, -2, "__call");
-        lua_setmetatable(L, -2);
-        raw.setGlobal(L, toStringz(name));
+        bind(state, name);
     }
 
     /// Ensure the class metatable exists in the registry.
@@ -1396,6 +1513,12 @@ struct LuaClass(T)
     {
         ensureMetatable(state);
         raw.pop(state.handle, 1);
+    }
+
+    /// Bind the class as a global table (see `bind`).
+    static void registerClass(LuaState state, string name)
+    {
+        bind(state, name);
     }
 
     private static void ensureMetatable(LuaState state)

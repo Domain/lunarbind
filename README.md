@@ -5,10 +5,9 @@
 > Status: **early scaffold (v0.1)**. The core API, conversion layer, callbacks and
 > a first userdata/object model are implemented and compile on DMD-frontend
 > (LDC 1.43) against Lua 5.1–5.4 API profiles. The runtime smoke tests pass
-> against LuaJIT 2.1.0-beta3 on Windows (Lua 5.2–5.4 runtime runs are left to CI,
-> which installs the corresponding system libraries). References created inside
-> callbacks share the owner state core, and cross-state use is rejected. The
-> public API is not frozen yet.
+> against Lua 5.1–5.4 and LuaJIT 2.1 on Windows and Linux using the bundled test
+> scripts. References created inside callbacks share the owner state core, and
+> cross-state use is rejected. The public API is not frozen yet.
 
 ## Why another binding?
 
@@ -43,6 +42,7 @@ source/lunarbind/
   conv.d         pushTo!T / popFrom!T (primitives, strings, arrays, AAs, Nullable, LuaRef)
   table.d        LuaTable (registry-backed; get/set/opIndex/foreach, weak tables)
   function_.d    LuaFunction call/bind, callback wrappers, delegate boxing, registration
+  module_.d      registerModule: bind all public functions in a D module
   coroutine.d    LuaThread: create/resume/yield/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
@@ -78,17 +78,23 @@ void main()
     auto mul = L.loadString("return function(a, b) return a * b end").call!LuaValue();
     // or: auto f = L.getGlobal!LuaFunction("mul"); f.call!int(6, 7);
 
-    // D object -> Lua userdata
+    // D object -> Lua userdata; one call binds the constructor and all public
+    // static/instance methods.
     auto player = new Player(100, "bob");
+    LuaClass!Player.registerClass(L, "Player");
     LuaClass!Player.setGlobal(L, "player", player);
     L.doString("player:damage(5)");
     assert(player.hp == 95);
 
     // Lua -> new D object
-    LuaClass!Player.registerConstructor(L, "Player");
     L.doString("local p = Player(10, 'new'); assert(p.hp == 10)");
 }
 ```
+
+`registerModule!(some.module)(L, "name")` binds every public function in a D
+module as one Lua table, including overloads. Both helpers share the same
+default-argument, typesafe-variadic and `LuaState` injection rules as
+`registerFunction`.
 
 `samples/hello.d` is a runnable version.
 
@@ -114,7 +120,7 @@ DUB configurations (pick one):
 
 | Config | API profile |
 |---|---|
-| `lua51` | Lua 5.1 / LuaJIT |
+| `lua51` | Lua 5.1 |
 | `lua52` | Lua 5.2 |
 | `lua53` | Lua 5.3 |
 | `lua54` | Lua 5.4 |
@@ -124,20 +130,32 @@ DUB configurations (pick one):
 # library
 dub build --config=lua54
 
-# runtime tests (needs a Lua development library installed)
-dub test --config=lua54
+# runtime tests (downloads/builds the selected Lua runtime)
+./tools/test-lua.sh --profiles lua54
 ```
 
-On Debian/Ubuntu:
+On Windows use the PowerShell script instead; it downloads LuaBinaries and
+builds LuaJIT with MSVC:
+
+```powershell
+.\tools\test-lua.ps1 -Profiles lua54
+```
+
+Both scripts default to all five profiles, cache runtimes under `.lua/`
+(git-ignored), and use `ldc2`/`dub` from `PATH` unless told otherwise
+(`--compiler` / `-Compiler`). No Lua binaries are committed.
+
+If you already have Lua development libraries installed, plain `dub test` still
+works:
 
 ```bash
 sudo apt install liblua5.4-dev      # for lua54
 sudo apt install libluajit-5.1-dev  # for luajit
+dub test --config=lua54
 ```
 
-On Windows, put `lua54.lib`/`lua54.dll` (or LuaJIT's `lua51.lib`) on the
-compiler/library search path. On macOS: `brew install lua@5.4` or `luajit`.
-The build does **not** vendor Lua binaries; you choose dynamic/static linking.
+On macOS: `brew install lua@5.4` or `luajit`. The build does **not** vendor Lua
+binaries; you choose dynamic/static linking.
 
 The module has **no D dependencies** beyond the D runtime, so `dub build` does
 not need network access. `dub test` links against the selected Lua library.
@@ -191,7 +209,11 @@ Goals and non-goals:
 
 Implemented: D class → full userdata; `__index`/`__newindex` for public fields;
 public methods (`obj:method(...)`) including overloads selected by arity and Lua
-argument types; `@property` getters/setters; class-typed fields and method
+argument types; one-call class binding (`LuaClass!T.registerClass(L, "Name")`)
+that registers the constructor and all public static methods, with instance
+methods also callable as `Name.method(obj, ...)`; one-call module binding
+(`registerModule!(some.module)(L, "name")`) for all public free functions
+including overloads; `@property` getters/setters; class-typed fields and method
 parameters/results; inheritance-aware upcasts (a derived userdata is accepted as
 a base class, not vice versa); constructors from Lua through a registered class
 table (`Class(args...)`); `__tostring` from D `toString`; `__len` from a `length`
