@@ -28,9 +28,9 @@ that goal:
   rooting;
 - weak-key/weak-value tables for caches and identity maps (`LuaWeakness`).
 
-It is a **new codebase**, not a patch on lumars; tests, UDA/field filtering ideas
-and the EmmyLua generator can be migrated over time. lumars remains MIT-licensed
-and is credited in [LICENSE](LICENSE).
+It is a **new codebase**, not a patch on lumars; tests and the EmmyLua
+generator can be migrated over time. lumars remains MIT-licensed and is
+credited in [LICENSE](LICENSE).
 
 ## Layout
 
@@ -45,6 +45,7 @@ source/lunarbind/
   function_.d    LuaFunction call/bind, callback wrappers, delegate boxing, registration
   module_.d      registerModule: bind all public functions in a D module
   bind.d         toLua: unified registration for functions, classes, struct type tables, modules, enums, values
+  export_.d      @LuaExport: Lua names and member filtering
   coroutine.d    LuaThread: create/resume/yield/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
@@ -96,8 +97,8 @@ void main()
 ## Unified registration with `toLua`
 
 `toLua` is the recommended facade. It detects the symbol kind at compile time,
-uses `__traits(identifier, Symbol)` as the default global name, and returns a
-handle that matches the category:
+uses the symbol's `@LuaExport("name")` or `__traits(identifier, Symbol)` as the
+default global name, and returns a handle that matches the category:
 
 | D symbol | Lua value | returned handle |
 |---|---|---|
@@ -155,6 +156,65 @@ tables expose public static methods only; bind struct values separately with
 injection rules as `registerFunction`. `registerModule!(some.module)(L, "name")`
 binds every public function in a D module as one Lua table, including
 overloads.
+
+## Naming and filtering with `@LuaExport`
+
+`@LuaExport` controls the Lua names used by automatic tables: `registerModule`,
+`toLua` (including class/struct type tables and enum tables), `LuaClass!T.bind`
+and `LuaStruct!S.bind`.
+
+```d
+import lunarbind;
+
+@LuaExport("vec")                       // type name
+struct Vec
+{
+    @LuaExport("x") int x;              // field name
+    @LuaExport(skip: true) int cache;   // hidden from automatic tables
+
+    @LuaExport("length") int len() const { return x; }
+    @LuaExport("origin") static Vec origin() { return Vec(0); }
+}
+
+@LuaExport("Renamed")
+class Player
+{
+    @LuaExport("hp") int health;
+    @LuaExport(skip: true) int internalState;
+
+    @LuaExport("damage") void takeDamage(int amount) { health -= amount; }
+    @LuaExport("heal") void restore(int amount) { health += amount; }
+}
+
+@LuaExport("Status")
+enum Status
+{
+    @LuaExport("ok") success,
+    @LuaExport(skip: true) legacy,
+}
+
+@LuaExport("mymodule")                  // module-level table name
+module my.module;
+
+@LuaExport("add") int addNumbers(int a, int b);  // table field name
+@LuaExport(skip: true) int debugOnly();
+```
+
+Rules:
+
+- `@LuaExport("name")` replaces the D identifier in automatic tables. It also
+  exposes names that are hidden by default (leading `_`, `toString`, ...).
+- `@LuaExport(skip: true)` removes a member from automatic tables.
+- `@LuaExport` with no arguments is accepted and behaves like the default.
+- An explicit `toLua!symbol(L)` call ignores `skip` but honors `name`, so a
+  hidden member can still be exported deliberately.
+- Overload sets share one Lua function; a UDA on any overload supplies the
+  name/skip for the whole set.
+- The default type/table name is the D identifier unless the symbol carries
+  `@LuaExport("name")`.
+
+Low-level APIs accept the resolved name explicitly, e.g.
+`LuaClass!T.bind(L, "Renamed")`; the UDA only supplies defaults.
 
 Custom representations are registered per state and override the default
 `LuaStruct!S`/`LuaClass!T` conversion:
@@ -297,7 +357,8 @@ with one-call class binding that registers the constructor and all public static
 methods, struct type tables that expose public static methods without a
 constructor, instance methods also callable as `Name.method(obj, ...)`, and
 one-call module binding for all public free functions including overloads;
-`@property` getters/setters;
+`@LuaExport` naming and member filtering across classes, structs, enums,
+modules and free functions; `@property` getters/setters;
 class-typed fields and method parameters/results; inheritance-aware upcasts (a
 derived userdata is accepted as a base class, not vice versa); constructors from
 Lua through a registered class table (`Class(args...)`); `__tostring` from D
@@ -324,8 +385,8 @@ rather than half-implemented.
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
-2. **`@LuaExport`**: UDA-driven naming/member filtering and EmmyLua stub
-   generation, building on `toLua`.
+2. **EmmyLua stubs**: generate `.lua` declaration files from the same
+   `@LuaExport` metadata used by `toLua` and automatic tables.
 3. **Tooling**: benchmarks, docs, module builder.
 4. **Lua 5.5** binding profile.
 

@@ -3,6 +3,7 @@
 module lunarbind.tests;
 
 import lunarbind;
+import lunarbind.exportfixture;
 
 import std.conv : to;
 import std.functional : toDelegate;
@@ -190,6 +191,52 @@ class AutoBound
     }
 }
 
+@LuaExport("RenamedBox")
+class ExportedClass
+{
+    @LuaExport("v")
+    int value;
+
+    @LuaExport(skip: true)
+    int hiddenField;
+
+    this(int value)
+    {
+        this.value = value;
+    }
+
+    @LuaExport("plus")
+    int add(int amount)
+    {
+        value += amount;
+        return value;
+    }
+
+    @LuaExport(skip: true)
+    int internal()
+    {
+        return 99;
+    }
+
+    @LuaExport("double")
+    static int twice(int value)
+    {
+        return value * 2;
+    }
+
+    @LuaExport("_under")
+    int normallyHidden()
+    {
+        return 5;
+    }
+
+    @property @LuaExport("total")
+    int sum() const
+    {
+        return value;
+    }
+}
+
 class Bag
 {
     int[] items;
@@ -205,6 +252,14 @@ enum Color
     red,
     green,
     blue,
+}
+
+@LuaExport("RenamedColor")
+enum ExportedColor
+{
+    @LuaExport("crimson") red,
+    green,
+    @LuaExport(skip: true) blue,
 }
 
 Color nextColor(Color color)
@@ -391,6 +446,36 @@ struct Point
     string toString() const
     {
         return "Point(" ~ to!string(x) ~ "," ~ to!string(y) ~ ")";
+    }
+}
+
+@LuaExport("RenamedVec")
+struct ExportedStruct
+{
+    int x;
+
+    @LuaExport("yCoord")
+    int y;
+
+    @LuaExport(skip: true)
+    int hidden;
+
+    @LuaExport("mag")
+    int magnitude() const
+    {
+        return x + y;
+    }
+
+    @LuaExport("make")
+    static ExportedStruct create(int x, int y)
+    {
+        return ExportedStruct(x, y);
+    }
+
+    @LuaExport(skip: true)
+    static int hiddenStatic()
+    {
+        return 1;
     }
 }
 
@@ -606,6 +691,52 @@ string joinVariadic(string separator, string[] parts...)
 string freePick(int value) { return "int"; }
 string freePick(string value) { return "string:" ~ value; }
 private int hiddenFree() { return 1; }
+
+@LuaExport("renamedFree")
+int exportFree(int value)
+{
+    return value * 2;
+}
+
+@LuaExport(skip: true)
+int exportHiddenFree()
+{
+    return 7;
+}
+
+@LuaExport("renamedPick")
+string exportPick(int value)
+{
+    return "int";
+}
+
+string exportPick(string value)
+{
+    return "string:" ~ value;
+}
+
+@LuaExport(skip: true)
+int exportSkippedSet(int value)
+{
+    return 1;
+}
+
+int exportSkippedSet(string value)
+{
+    return 2;
+}
+
+@LuaExport
+int exportBare(int value)
+{
+    return value + 1;
+}
+
+@LuaExport("exportBothName", skip: true)
+int exportBoth()
+{
+    return 11;
+}
 
 Tuple!(int, string) describe(int value)
 {
@@ -1267,6 +1398,16 @@ unittest
     registerModule!(lunarbind.tests)(L, "testlib");
     auto moduleResult = L.eval("
         assert(testlib.hiddenFree == nil)
+        assert(testlib.exportFree == nil)
+        assert(testlib.exportHiddenFree == nil)
+        assert(testlib.exportPick == nil)
+        assert(testlib.exportSkippedSet == nil)
+        assert(testlib.exportBoth == nil)
+        assert(testlib.exportBothName == nil)
+        assert(testlib.renamedFree(21) == 42)
+        assert(testlib.renamedPick(7) == 'int')
+        assert(testlib.renamedPick('x') == 'string:x')
+        assert(testlib.exportBare(1) == 2)
         assert(testlib.nextColor(0) == 1)
         assert(testlib.colorName(2) == 'blue')
         return testlib.add(20, 22),
@@ -1320,6 +1461,127 @@ unittest
     auto toLuaDefaultModule = toLua!(lunarbind.tests)(L);
     assert(toLuaDefaultModule.get!LuaFunction("add").call!int(1, 2) == 3);
     assert(L.getGlobal!LuaTable("tests").get!LuaFunction("add").call!int(2, 3) == 5);
+
+    // @LuaExport renames symbols and members in automatic tables, and
+    // skip: true removes them. Explicit toLua calls honor the name but ignore
+    // skip, so a hidden member can still be bound on purpose.
+    auto exportedClass = toLua!ExportedClass(L);
+    assert(exportedClass.get!LuaFunction("double").call!int(21) == 42);
+    auto exportedClassResult = L.eval("
+        local obj = RenamedBox(3)
+        obj.v = obj.v + 4
+        obj:plus(2)
+        assert(obj.value == nil)
+        assert(obj.hiddenField == nil)
+        assert(obj.internal == nil)
+        assert(RenamedBox.internal == nil)
+        assert(obj:_under() == 5)
+        assert(obj.total == 9)
+        assert(ExportedClass == nil)
+        return obj.v, obj.total, RenamedBox.double(20), RenamedBox.plus(obj, 1)
+    ");
+    assert(asInt(exportedClassResult[0]) == 9);
+    assert(asInt(exportedClassResult[1]) == 9);
+    assert(asInt(exportedClassResult[2]) == 40);
+    assert(asInt(exportedClassResult[3]) == 10);
+
+    // bind() uses the @LuaExport type name by default.
+    auto boundExportedClass = LuaClass!ExportedClass.bind(L);
+    assert(boundExportedClass.get!LuaFunction("double").call!int(2) == 4);
+    assert(asInt(L.eval("return RenamedBox(6).v")[0]) == 6);
+
+    // Struct type tables use renamed static methods; struct values use the
+    // renamed fields and methods on their instance metatable.
+    auto exportedStructType = toLua!ExportedStruct(L);
+    assert(exportedStructType.get!LuaFunction("make").ref_.type() == LuaType.function_);
+    L.doString("
+        local s = RenamedVec.make(3, 4)
+        assert(s.x == 3)
+        assert(s.yCoord == 4)
+        assert(s.y == nil)
+        assert(s.hidden == nil)
+        assert(s:mag() == 7)
+        assert(RenamedVec.hiddenStatic == nil)
+    ");
+    auto exportedStructValue = ExportedStruct(5, 6);
+    LuaStruct!ExportedStruct.setGlobal(L, "exportedStructValue", exportedStructValue);
+    L.doString("
+        assert(exportedStructValue.x == 5)
+        assert(exportedStructValue.yCoord == 6)
+        assert(exportedStructValue.y == nil)
+        assert(exportedStructValue.hidden == nil)
+        assert(exportedStructValue:mag() == 11)
+    ");
+    auto boundExportedStruct = LuaStruct!ExportedStruct.bind(L);
+    assert(boundExportedStruct.get!LuaFunction("make").ref_.type() == LuaType.function_);
+
+    // Enum tables use the renamed type and members, and hide skipped members.
+    auto exportedEnum = toLua!ExportedColor(L);
+    assert(exportedEnum.get!int("crimson") == 0);
+    assert(exportedEnum.get!int("green") == 1);
+    L.doString("
+        assert(RenamedColor.crimson == 0)
+        assert(RenamedColor.green == 1)
+        assert(RenamedColor.blue == nil)
+        assert(RenamedColor.red == nil)
+    ");
+
+    // A skipped enum member is still available through explicit toLua.
+    auto explicitBlue = toLua!(ExportedColor.blue)(L);
+    auto explicitBlueKind = explicitBlue.type();
+    assert(explicitBlueKind == LuaType.integer || explicitBlueKind == LuaType.number);
+    assert(L.getGlobal!int("blue") == 2);
+
+    // A skipped free function is hidden from registerModule but can be bound
+    // explicitly.
+    auto hiddenFreeFn = toLua!exportHiddenFree(L);
+    assert(hiddenFreeFn.call!int() == 7);
+    L.doString("assert(testlib.exportHiddenFree == nil)");
+
+    // Renamed overload sets share one Lua function under the UDA name.
+    auto renamedOverloads = toLua!exportPick(L);
+    assert(renamedOverloads.call!string(7) == "int");
+    assert(renamedOverloads.call!string("x") == "string:x");
+    auto skippedOverloads = toLua!exportSkippedSet(L);
+    assert(skippedOverloads.call!int(1) == 1);
+    assert(skippedOverloads.call!int("x") == 2);
+
+    // Module-level @LuaExport supplies the default table name, and function
+    // UDAs apply inside that table.
+    auto fixtureModule = toLua!(lunarbind.exportfixture)(L);
+    assert(fixtureModule.get!LuaFunction("fixtureAdd").call!int(20, 22) == 42);
+    assert(fixtureModule.get!LuaFunction("fixtureChoice").call!string(7) == "int");
+    assert(fixtureModule.get!LuaFunction("fixtureChoice").call!string("x") == "string:x");
+    assert(fixtureModule.get!LuaFunction("fixturePlain").call!int(1) == 2);
+    L.doString("
+        assert(renamedFixture.fixtureHidden == nil)
+        assert(renamedFixture.fixtureSum == nil)
+        assert(renamedFixture.fixturePick == nil)
+        assert(renamedFixture.fixtureAdd(1, 2) == 3)
+        assert(renamedFixture.fixtureChoice(1) == 'int')
+    ");
+    auto fixtureHiddenFn = toLua!fixtureHidden(L);
+    assert(fixtureHiddenFn.call!int() == 7);
+
+    // Direct registration APIs also use the UDA defaults.
+    registerModule!(lunarbind.exportfixture)(L);
+    L.doString("assert(renamedFixture.fixtureAdd(1, 2) == 3)");
+    registerEnum!ExportedColor(L);
+    L.doString("
+        assert(RenamedColor.crimson == 0)
+        assert(RenamedColor.blue == nil)
+    ");
+
+    // An explicit name and skip: true combine: automatic tables hide the
+    // member, while an explicit toLua uses the requested name.
+    auto combinedExport = toLua!exportBoth(L);
+    assert(combinedExport.call!int() == 11);
+    assert(L.getGlobal!LuaFunction("exportBothName").call!int() == 11);
+
+    static assert(is(typeof(toLua!ExportedClass(L)) == LuaTable));
+    static assert(is(typeof(toLua!ExportedStruct(L)) == LuaTable));
+    static assert(is(typeof(toLua!ExportedColor(L)) == LuaTable));
+    static assert(is(typeof(toLua!(lunarbind.exportfixture)(L)) == LuaTable));
 
     auto toLuaEnum = toLua!Color(L);
     assert(toLuaEnum.get!int("red") == 0);

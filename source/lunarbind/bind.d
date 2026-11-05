@@ -13,13 +13,14 @@
 /// | enum type                | `{ member = value }` | `LuaTable`      |
 /// | instance / plain value   | value                | `LuaRef`        |
 ///
-/// The default name comes from `__traits(identifier, Symbol)`. Runtime values
-/// have no symbol name, so they require an explicit name:
-/// `toLua(L, value, "name")`.
+/// The default name comes from `__traits(identifier, Symbol)` unless the
+/// symbol carries `@LuaExport("name")`. Runtime values have no symbol name, so
+/// they require an explicit name: `toLua(L, value, "name")`.
 ///
 /// Struct type tables expose public static methods only; struct values are
-/// bound separately and remain value-only. `@LuaExport` for naming and member
-/// filtering is a planned extension.
+/// bound separately and remain value-only. Members marked
+/// `@LuaExport(skip: true)` are omitted from automatic tables, while an
+/// explicit `toLua!Symbol` call still binds them.
 module lunarbind.bind;
 
 static import raw = lunarbind.raw;
@@ -29,6 +30,8 @@ import lunarbind.table : LuaTable;
 import lunarbind.function_ : LuaFunction, pushFunction, pushDelegate;
 import lunarbind.module_ : pushFunctionSet, registerModule;
 import lunarbind.object : LuaClass, LuaStruct;
+import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf,
+                         luaTypeName;
 
 import std.string : toStringz;
 import std.traits : isSomeFunction;
@@ -66,9 +69,6 @@ package template overloadSetLength(alias Symbol)
     else
         enum overloadSetLength = 0;
 }
-
-/// Default Lua global name for a compile-time symbol.
-package enum defaultLuaName(alias Symbol) = __traits(identifier, Symbol);
 
 // ---------------------------------------------------------------------------
 // Registration helpers
@@ -131,9 +131,10 @@ private LuaRef bindValue(alias Symbol)(LuaState state, string name)
 /// Export a compile-time symbol as a Lua global.
 ///
 /// The overload is selected by symbol kind; see the module documentation.
-/// The default name is the symbol's identifier, so `toLua!add(L)` creates the
-/// global `add`, while `toLua!add(L, "add2")` renames it.
-auto toLua(alias Symbol)(LuaState state, string name = defaultLuaName!Symbol)
+/// The default name is the symbol's identifier or its `@LuaExport("name")`,
+/// so `toLua!add(L)` creates the global `add`, while `toLua!add(L, "add2")`
+/// renames it.
+auto toLua(alias Symbol)(LuaState state, string name = luaNameOf!Symbol)
 {
     static if (isTypeSymbol!Symbol)
     {
@@ -191,16 +192,18 @@ auto toLua(T)(LuaState state, auto ref T value, string name)
 }
 
 /// Bind an enum type as a global table mapping member names to their base
-/// integer values. No reverse mapping is created.
-LuaTable registerEnum(E)(LuaState state, string name = E.stringof)
+/// integer values. No reverse mapping is created. The table name defaults to
+/// the enum identifier or its `@LuaExport("name")`; members can be renamed
+/// with `@LuaExport("name")` or hidden with `@LuaExport(skip: true)`.
+LuaTable registerEnum(E)(LuaState state, string name = luaTypeName!E)
 {
     static assert(is(E == enum), "lunarbind: registerEnum requires an enum type");
 
     auto table = LuaTable.create(state, 0, cast(int) __traits(allMembers, E).length);
     static foreach (member; __traits(allMembers, E))
     {{
-        static if (member != "__init")
-            table.set(member, __traits(getMember, E, member));
+        static if (isLuaExportedMember!(E, member))
+            table.set(luaMemberName!(E, member), __traits(getMember, E, member));
     }}
 
     table.pushInto(state);

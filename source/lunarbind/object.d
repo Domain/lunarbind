@@ -5,6 +5,8 @@
 /// - D -> Lua and Lua -> D object identity is preserved (full userdata stores
 ///   the class reference, and the D GC is rooted while Lua owns the userdata).
 /// - Public fields and `@property` accessors are readable/writable from Lua.
+/// - `@LuaExport("name")` renames a class, struct, field, method or property;
+///   `@LuaExport(skip: true)` hides members from automatic tables.
 /// - Public methods are callable as `obj:method(...)`; overloads are selected
 ///   by arity and Lua argument types.
 /// - Registered classes can be constructed from Lua with `Class(args...)`.
@@ -32,6 +34,7 @@ import lunarbind.conv;
 import lunarbind.dispatch;
 import lunarbind.table : LuaTable;
 import lunarbind.function_;
+import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaTypeName;
 
 import core.memory : GC;
 import core.sync.mutex : Mutex;
@@ -70,23 +73,6 @@ private template isPublicOverload(alias F)
         enum isPublicOverload = __traits(getProtection, F) == "public";
     else
         enum isPublicOverload = false;
-}
-
-package template isExposedName(string member)
-{
-    enum isExposedName =
-        member.length > 0
-        && member[0] != '_'
-        && member != "toString"
-        && member != "toHash"
-        && member != "opEquals"
-        && member != "opCmp"
-        && member != "classinfo"
-        && member != "mangleof"
-        && member != "sizeof"
-        && member != "alignof"
-        && member != "init"
-        && member != "factory";
 }
 
 private template isBindableType(T)
@@ -1057,11 +1043,11 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
 
             static foreach (member; __traits(allMembers, T))
             {{
-                static if (isPublicMember!(T, member) && isExposedName!member)
+                static if (isPublicMember!(T, member) && isLuaExportedMember!(T, member))
                 {
                     static if (hasPropertyGetter!(T, member))
                     {
-                        if (key == member)
+                        if (key == luaMemberName!(T, member))
                         {
                             pushTo(state, __traits(getMember, *self, member)());
                             return 1;
@@ -1069,7 +1055,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
                     }
                     else static if (fieldBindable!(T, member))
                     {
-                        if (key == member)
+                        if (key == luaMemberName!(T, member))
                         {
                             pushTo(state, __traits(getMember, *self, member));
                             return 1;
@@ -1077,7 +1063,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
                     }
                     else static if (methodBindable!(T, member))
                     {
-                        if (key == member)
+                        if (key == luaMemberName!(T, member))
                         {
                             pushCFunction(L, &methodThunk!(T, member));
                             return 1;
@@ -1130,11 +1116,11 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
 
             static foreach (member; __traits(allMembers, T))
             {{
-                static if (isPublicMember!(T, member) && isExposedName!member)
+                static if (isPublicMember!(T, member) && isLuaExportedMember!(T, member))
                 {
                     static if (hasPropertySetter!(T, member))
                     {
-                        if (key == member)
+                        if (key == luaMemberName!(T, member))
                         {
                             alias Setter = propertySetter!(T, member);
                             alias SetterParams = Parameters!Setter;
@@ -1146,7 +1132,7 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
                     }
                     else static if (fieldBindable!(T, member))
                     {
-                        if (key == member)
+                        if (key == luaMemberName!(T, member))
                         {
                             alias FT = Unqual!(fieldType!(T, member));
                             __traits(getMember, *self, member) = popFrom!FT(state, 3);
@@ -1466,9 +1452,9 @@ struct LuaClass(T)
     /// constructor. Every public static method becomes a field of the table;
     /// public instance methods are available both as `obj:method(...)` and as
     /// `name.method(obj, ...)`. Fields and properties are reached through the
-    /// instance metatable. `name` defaults to the D class name. Returns a
-    /// handle to the new table.
-    static LuaTable bind(LuaState state, string name = T.stringof)
+    /// instance metatable. `name` defaults to the D class name or its
+    /// `@LuaExport("name")`. Returns a handle to the new table.
+    static LuaTable bind(LuaState state, string name = luaTypeName!T)
     {
         auto L = state.handle;
         ensureMetatable(state);
@@ -1485,17 +1471,17 @@ struct LuaClass(T)
 
         static foreach (member; __traits(allMembers, T))
         {{
-            static if (isPublicMember!(T, member) && isExposedName!member)
+            static if (isPublicMember!(T, member) && isLuaExportedMember!(T, member))
             {
                 static if (staticMethodBindable!(T, member))
                 {
                     pushCFunction(L, &staticMethodThunk!(T, member));
-                    lua_setfield(L, -2, toStringz(member));
+                    lua_setfield(L, -2, toStringz(luaMemberName!(T, member)));
                 }
                 else static if (methodBindable!(T, member))
                 {
                     pushCFunction(L, &classTableMethodThunk!(T, member));
-                    lua_setfield(L, -2, toStringz(member));
+                    lua_setfield(L, -2, toStringz(luaMemberName!(T, member)));
                 }
             }
         }}
@@ -1669,18 +1655,19 @@ struct LuaStruct(S)
     /// remain value-only and are bound with `push`, `setGlobal` or
     /// `toLua(L, value, name)`. The type table has no constructor because a
     /// struct has no object identity; create boxes from D or through a codec.
-    /// `name` defaults to the D struct name. Returns a handle to the new table.
-    static LuaTable bind(LuaState state, string name = S.stringof)
+    /// `name` defaults to the D struct name or its `@LuaExport("name")`.
+    /// Returns a handle to the new table.
+    static LuaTable bind(LuaState state, string name = luaTypeName!S)
     {
         lua_createtable(state.handle, 0, 0);
         static foreach (member; __traits(allMembers, S))
         {{
-            static if (isPublicMember!(S, member) && isExposedName!member)
+            static if (isPublicMember!(S, member) && isLuaExportedMember!(S, member))
             {
                 static if (staticMethodBindable!(S, member))
                 {
                     pushCFunction(state.handle, &staticMethodThunk!(S, member));
-                    lua_setfield(state.handle, -2, toStringz(member));
+                    lua_setfield(state.handle, -2, toStringz(luaMemberName!(S, member)));
                 }
             }
         }}

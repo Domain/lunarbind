@@ -9,7 +9,8 @@ import lunarbind.raw;
 static import raw = lunarbind.raw;
 import lunarbind.state;
 import lunarbind.dispatch : fillCallArgs, pushCallResult;
-import lunarbind.object : callMatches, isExposedName, overloadBindable;
+import lunarbind.object : callMatches, overloadBindable;
+import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf;
 import lunarbind.table : LuaTable;
 
 import std.string : toStringz;
@@ -22,7 +23,7 @@ import std.typecons : Tuple;
 // are ignored by the `Parameters!F` screen inside `overloadBindable`.
 private template moduleMemberBindable(alias Module, string member)
 {
-    static if (member == "main" || !isExposedName!member)
+    static if (member == "main" || !isLuaExportedMember!(Module, member))
         enum moduleMemberBindable = false;
     else static if (__traits(compiles, __traits(getOverloads, Module, member)))
         enum moduleMemberBindable = anyModuleOverloadBindable!(Module, member);
@@ -69,7 +70,7 @@ package extern(C) int functionSetThunk(alias Parent, string member)(lua_State* L
             }
         }}
 
-        auto msg = "no matching overload for " ~ member;
+        auto msg = "no matching overload for " ~ luaMemberName!(Parent, member);
         lua_pushlstring(L, msg.ptr, msg.length);
         return lua_error(L);
     }
@@ -97,8 +98,11 @@ package void pushFunctionSet(alias Parent, string member)(LuaState state)
 /// be instantiated from Lua are ignored. Public overloads with the same name
 /// are dispatched by arity and Lua argument types, with the same default
 /// argument, typesafe variadic and `LuaState` injection rules as
-/// `registerFunction`. Returns a handle to the new table.
-LuaTable registerModule(alias Module)(LuaState state, string name)
+/// `registerFunction`. `@LuaExport("name")` renames a function and
+/// `@LuaExport(skip: true)` hides it. The table name defaults to the module
+/// identifier or its `@LuaExport("name")`. Returns a handle to the new table.
+LuaTable registerModule(alias Module)(LuaState state,
+                                      string name = luaNameOf!Module)
 {
     lua_createtable(state.handle, 0, 0);
     static foreach (member; __traits(allMembers, Module))
@@ -106,7 +110,8 @@ LuaTable registerModule(alias Module)(LuaState state, string name)
         static if (moduleMemberBindable!(Module, member))
         {
             pushFunctionSet!(Module, member)(state);
-            lua_setfield(state.handle, -2, toStringz(member));
+            lua_setfield(state.handle, -2,
+                         toStringz(luaMemberName!(Module, member)));
         }
     }}
     auto ref_ = LuaRef.make(state, -1);
