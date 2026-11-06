@@ -806,6 +806,15 @@ unittest
     L.setGlobal("greeting", "hello");
     assert(L.getGlobal!string("greeting") == "hello");
 
+    // 64-bit integers must survive conversion without truncation to 32 bits
+    // (regression: lua_tointegerx was declared as returning int).
+    L.setGlobal("large", 500001500000L);
+    assert(L.getGlobal!long("large") == 500001500000L);
+    L.doString("function large_sum(n) return n * (n + 3) / 2 end");
+    auto largeSum = L.getGlobal!LuaFunction("large_sum");
+    assert(largeSum.call!long(1_000_000) == 500001500000L);
+    assert(largeSum.call!double(1_000_000) == 500001500000.0);
+
     // tables
     auto g = L.globals();
     g["name"] = "lunarbind";

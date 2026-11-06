@@ -242,7 +242,7 @@ else
         void lua_callk(lua_State* L, int nargs, int nresults,
                        lua_KContext ctx, lua_KFunction k);
         int  lua_yieldk(lua_State* L, int nresults, lua_KContext ctx, lua_KFunction k);
-        int  lua_tointegerx(lua_State* L, int idx, int* isnum);
+        lua_Integer lua_tointegerx(lua_State* L, int idx, int* isnum);
         lua_Number lua_tonumberx(lua_State* L, int idx, int* isnum);
         size_t lua_rawlen(lua_State* L, int idx);
         void lua_len(lua_State* L, int idx);

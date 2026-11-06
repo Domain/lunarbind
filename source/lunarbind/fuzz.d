@@ -48,7 +48,7 @@ unittest
 
     foreach (i; 0 .. iterations)
     {
-        switch (uniform(0, 9, rng))
+        switch (uniform(0, 10, rng))
         {
             case 0:
             {
@@ -134,6 +134,16 @@ unittest
                 auto back = LuaStruct!FuzzPoint.getGlobal(L, "fuzz_point");
                 assert(back.x == point.x + 1);
                 assert(back.y == point.y);
+                break;
+            }
+            case 9:
+            {
+                // Values above 2^31 catch 32-bit truncation in the integer
+                // conversion path; stay below 2^53 so double-based runtimes
+                // (Lua 5.1/5.2, LuaJIT) represent them exactly.
+                auto value = uniform(-4_000_000_000_000L, 4_000_000_000_000L, rng);
+                L.setGlobal("fuzz_value", value);
+                assert(L.getGlobal!long("fuzz_value") == value);
                 break;
             }
             default:
