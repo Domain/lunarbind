@@ -95,7 +95,8 @@ function Download-File {
     Remove-Item -Force $tmp -ErrorAction SilentlyContinue
 
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-        & curl.exe -L --fail --silent --show-error --connect-timeout 15 -o $tmp $Url
+        & curl.exe -L --fail --silent --show-error --connect-timeout 15 `
+            --retry 3 --retry-delay 2 -o $tmp $Url
         if ($LASTEXITCODE -ne 0) {
             Remove-Item -Force $tmp -ErrorAction SilentlyContinue
             throw "download failed: $Url"

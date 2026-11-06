@@ -343,6 +343,9 @@ Both scripts default to all six profiles, cache runtimes under `.lua/`
 (git-ignored), and use `ldc2`/`dub` from `PATH` unless told otherwise
 (`--compiler` / `-Compiler`). No Lua binaries are committed.
 
+CI runs the distro-package matrix on Linux, the source-built runtime matrix on
+Linux and Windows (LDC and DMD), and Homebrew-based builds on macOS (LDC).
+
 If you already have Lua development libraries installed, plain `dub test` still
 works:
 
