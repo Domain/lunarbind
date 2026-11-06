@@ -59,7 +59,7 @@ private template memberCount(T, string member)
         enum memberCount = 0;
 }
 
-private template isPublicMember(T, string member)
+package template isPublicMember(T, string member)
 {
     static if (__traits(compiles, __traits(getProtection, __traits(getMember, T, member))))
         enum isPublicMember = __traits(getProtection, __traits(getMember, T, member)) == "public";
@@ -118,7 +118,7 @@ package template overloadBindable(alias Method)
         enum overloadBindable = false;
 }
 
-private template methodBindable(T, string member, size_t i = 0)
+package template methodBindable(T, string member, size_t i = 0)
 {
     static if (__traits(compiles, __traits(getOverloads, T, member)))
     {
@@ -133,7 +133,7 @@ private template methodBindable(T, string member, size_t i = 0)
         enum methodBindable = false;
 }
 
-private template staticMethodBindable(T, string member, size_t i = 0)
+package template staticMethodBindable(T, string member, size_t i = 0)
 {
     static if (__traits(compiles, __traits(getOverloads, T, member)))
     {
@@ -356,7 +356,7 @@ private template isPropertyFunction(alias F)
         enum isPropertyFunction = false;
 }
 
-private template propertyGetter(T, string member, size_t i = 0)
+package template propertyGetter(T, string member, size_t i = 0)
 {
     static if (__traits(compiles, __traits(getOverloads, T, member)))
     {
@@ -381,7 +381,7 @@ private template propertyGetter(T, string member, size_t i = 0)
         alias propertyGetter = void;
 }
 
-private template propertySetter(T, string member, size_t i = 0)
+package template propertySetter(T, string member, size_t i = 0)
 {
     static if (__traits(compiles, __traits(getOverloads, T, member)))
     {
@@ -406,12 +406,12 @@ private template propertySetter(T, string member, size_t i = 0)
         alias propertySetter = void;
 }
 
-private template hasPropertyGetter(T, string member)
+package template hasPropertyGetter(T, string member)
 {
     enum hasPropertyGetter = !is(propertyGetter!(T, member) == void);
 }
 
-private template hasPropertySetter(T, string member)
+package template hasPropertySetter(T, string member)
 {
     enum hasPropertySetter = !is(propertySetter!(T, member) == void);
 }
@@ -430,7 +430,7 @@ private template isField(T, string member)
         enum isField = false;
 }
 
-private template fieldBindable(T, string member)
+package template fieldBindable(T, string member)
 {
     static if (isField!(T, member))
         enum fieldBindable = isBindableType!(Unqual!(fieldType!(T, member)));

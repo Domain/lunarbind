@@ -5,9 +5,10 @@ module lunarbind.tests;
 import lunarbind;
 import lunarbind.exportfixture;
 
+import std.algorithm.searching : canFind;
 import std.conv : to;
 import std.functional : toDelegate;
-import std.typecons : Tuple, tuple;
+import std.typecons : Nullable, Tuple, tuple;
 
 class Player
 {
@@ -1710,4 +1711,118 @@ unittest
         }
         assert(objectRootCountForTest(cast(void*) closedObj) == 0);
     }
+}
+
+unittest
+{
+    // EmmyLua type mapping.
+    assert(luaStubType!int() == "integer");
+    assert(luaStubType!long() == "integer");
+    assert(luaStubType!double() == "number");
+    assert(luaStubType!string() == "string");
+    assert(luaStubType!bool() == "boolean");
+    assert(luaStubType!(int[])() == "integer[]");
+    assert(luaStubType!(int[string])() == "table<string, integer>");
+    assert(luaStubType!(int*)() == "lightuserdata");
+    assert(luaStubType!(Nullable!int)() == "integer|nil");
+    assert(luaStubType!LuaValue() == "any");
+    assert(luaStubType!LuaTable() == "table");
+    assert(luaStubType!LuaFunction() == "function");
+    assert(luaStubType!ExportedClass() == "RenamedBox");
+    assert(luaStubType!ExportedColor() == "RenamedColor");
+    assert(luaStubType!void() == "nil");
+
+    // Classes expose fields, properties, constructors, instance methods and
+    // static methods. Private and skipped members are omitted.
+    auto classStub = luaStubs!AutoBound();
+    assert(classStub.canFind("---@class AutoBound"));
+    assert(classStub.canFind("---@field public value integer"));
+    assert(classStub.canFind("function AutoBound(value) end"));
+    assert(classStub.canFind("function AutoBound.add(self, amount) end"));
+    assert(classStub.canFind("function AutoBound.twice(value) end"));
+    assert(classStub.canFind("function AutoBound.label() end"));
+    assert(!classStub.canFind("hidden"));
+
+    auto exportedClassStub = luaStubs!ExportedClass();
+    assert(exportedClassStub.canFind("---@class RenamedBox"));
+    assert(exportedClassStub.canFind("---@field public v integer"));
+    assert(exportedClassStub.canFind("---@field public total integer"));
+    assert(exportedClassStub.canFind("function RenamedBox.plus(self, amount) end"));
+    assert(exportedClassStub.canFind("function RenamedBox.double(value) end"));
+    assert(exportedClassStub.canFind("function RenamedBox._under(self) end"));
+    assert(!exportedClassStub.canFind("hiddenField"));
+    assert(!exportedClassStub.canFind("internal"));
+    assert(!exportedClassStub.canFind("value ===")); // renamed field only
+
+    // Struct type tables expose static methods without a constructor; struct
+    // values expose fields and instance methods through the value class.
+    auto structStub = luaStubs!ExportedStruct();
+    assert(structStub.canFind("---@class RenamedVec"));
+    assert(structStub.canFind("---@field public x integer"));
+    assert(structStub.canFind("---@field public yCoord integer"));
+    assert(structStub.canFind("---@field public mag fun(self: RenamedVec): integer"));
+    assert(structStub.canFind("function RenamedVec.make(x, y) end"));
+    assert(!structStub.canFind("hiddenStatic"));
+    assert(!structStub.canFind("hidden "));
+
+    // Enum tables use renamed members and hide skipped ones.
+    auto enumStub = luaStubs!ExportedColor();
+    assert(enumStub.canFind("---@enum RenamedColor"));
+    assert(enumStub.canFind("crimson = 0"));
+    assert(enumStub.canFind("green = 1"));
+    assert(!enumStub.canFind("blue"));
+
+    // String-backed enums keep their string values.
+    enum Named
+    {
+        first = "one",
+        second = "two",
+    }
+    auto namedStub = luaStubs!Named();
+    assert(namedStub.canFind(`first = "one"`));
+    assert(namedStub.canFind(`second = "two"`));
+
+    // Overloaded constructors become ---@overload entries.
+    auto overloadedCtorStub = luaStubs!Overloaded();
+    assert(overloadedCtorStub.canFind("---@overload fun(value: integer): Overloaded"));
+    assert(overloadedCtorStub.canFind("---@overload fun(value: string): Overloaded"));
+    assert(overloadedCtorStub.canFind("---@overload fun(a: integer, b: integer): Overloaded"));
+    assert(overloadedCtorStub.canFind("function Overloaded(...) end"));
+
+    // Module tables follow registerModule's filtering and overload handling.
+    auto moduleStub = luaStubs!(lunarbind.exportfixture)();
+    assert(moduleStub.canFind("---@class renamedFixture"));
+    assert(moduleStub.canFind("function renamedFixture.fixtureAdd(a, b) end"));
+    assert(moduleStub.canFind("---@overload fun(value: integer): string"));
+    assert(moduleStub.canFind("---@overload fun(value: string): string"));
+    assert(moduleStub.canFind("function renamedFixture.fixtureChoice(...) end"));
+    assert(moduleStub.canFind("function renamedFixture.fixturePlain(value) end"));
+    assert(!moduleStub.canFind("fixtureHidden"));
+    assert(!moduleStub.canFind("fixtureSum"));
+    assert(!moduleStub.canFind("fixturePick"));
+
+    // Free functions, injected LuaState parameters, defaults and variadics.
+    assert(luaStubs!add().canFind("function add(a, b) end"));
+    auto tupleStub = luaStubs!describe();
+    assert(tupleStub.canFind("---@return integer"));
+    assert(tupleStub.canFind("---@return string"));
+    assert(tupleStub.canFind("function describe(value) end"));
+    auto variadicStub = luaStubs!stateSum();
+    assert(variadicStub.canFind("---@param base? integer"));
+    assert(variadicStub.canFind("---@vararg integer"));
+    assert(variadicStub.canFind("function stateSum(base, ...) end"));
+
+    // An explicit stub request ignores skip, mirroring explicit toLua.
+    assert(luaStubs!exportHiddenFree().canFind("function exportHiddenFree() end"));
+
+    // Runtime values are declared with ---@type.
+    assert(luaStubs!capturedTable().canFind("---@type table\ncapturedTable = nil"));
+
+    // The builder can be used incrementally.
+    LuaStubBuilder builder;
+    builder.addFunction!add("sum");
+    builder.addValue!int("answer");
+    auto manual = builder.toString();
+    assert(manual.canFind("function sum(a, b) end"));
+    assert(manual.canFind("---@type integer\nanswer = nil"));
 }

@@ -46,6 +46,7 @@ source/lunarbind/
   module_.d      registerModule: bind all public functions in a D module
   bind.d         toLua: unified registration for functions, classes, struct type tables, modules, enums, values
   export_.d      @LuaExport: Lua names and member filtering
+  stub.d         luaStubs / LuaStubBuilder: EmmyLua declaration generation
   coroutine.d    LuaThread: create/resume/yield/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
@@ -216,6 +217,48 @@ Rules:
 Low-level APIs accept the resolved name explicitly, e.g.
 `LuaClass!T.bind(L, "Renamed")`; the UDA only supplies defaults.
 
+## EmmyLua stubs
+
+`luaStubs!Symbols()` generates a `.lua` declaration file for editors that
+understand EmmyLua/LuaLS annotations. It uses the same `@LuaExport` names and
+filters as automatic tables, so the stubs match what Lua sees at runtime:
+
+```d
+import std.file : write;
+import lunarbind;
+
+write("mymodule.lua", luaStubs!(
+    Player,          // ---@class with fields, properties and methods
+    Vec,             // struct value class + static-method type table
+    Status,          // ---@enum table
+    my.module,       // function table
+    addNumbers,      // global function / overload set
+    player           // ---@type value
+)());
+```
+
+The builder emits `---@class`, `---@field`, `---@param`, `---@return`,
+`---@overload`, `---@vararg`, `---@enum` and `---@type` annotations. Classes
+include constructor overloads, instance methods (`function Name.method(self, ...)`)
+and static methods; struct type tables contain public static methods only,
+while struct values expose fields and instance methods; enum members use their
+integer or string values; modules contain every exported function with
+overloads listed as `---@overload`.
+
+`LuaStubBuilder` supports incremental output:
+
+```d
+LuaStubBuilder builder;
+builder.addClass!Player();
+builder.addFunction!addNumbers("add");
+builder.addValue!int("answer");
+write("mymodule.lua", builder.toString());
+```
+
+As with explicit `toLua!symbol(L)`, listing a symbol explicitly includes it
+even when it carries `@LuaExport(skip: true)`; `skip` only filters automatic
+tables (module members, class/struct members and enum members).
+
 Custom representations are registered per state and override the default
 `LuaStruct!S`/`LuaClass!T` conversion:
 
@@ -358,7 +401,8 @@ methods, struct type tables that expose public static methods without a
 constructor, instance methods also callable as `Name.method(obj, ...)`, and
 one-call module binding for all public free functions including overloads;
 `@LuaExport` naming and member filtering across classes, structs, enums,
-modules and free functions; `@property` getters/setters;
+modules and free functions; EmmyLua stub generation (`luaStubs`,
+`LuaStubBuilder`) from the same metadata; `@property` getters/setters;
 class-typed fields and method parameters/results; inheritance-aware upcasts (a
 derived userdata is accepted as a base class, not vice versa); constructors from
 Lua through a registered class table (`Class(args...)`); `__tostring` from D
@@ -385,10 +429,9 @@ rather than half-implemented.
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
-2. **EmmyLua stubs**: generate `.lua` declaration files from the same
-   `@LuaExport` metadata used by `toLua` and automatic tables.
-3. **Tooling**: benchmarks, docs, module builder.
-4. **Lua 5.5** binding profile.
+2. **Tooling**: benchmarks, docs, module builder, and richer stub output
+   (descriptions, custom codecs, base-class closure).
+3. **Lua 5.5** binding profile.
 
 ## License
 

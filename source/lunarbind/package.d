@@ -13,6 +13,7 @@
 ///   - `toLua` unified registration for functions, classes, struct type tables,
 ///     modules, enums and values
 ///   - `@LuaExport` naming and member filtering for automatic tables
+///   - `luaStubs` / `LuaStubBuilder` EmmyLua declaration generation
 ///   - `registerFunction` / `registerLibrary` callback registration
 module lunarbind;
 
@@ -28,6 +29,7 @@ public import lunarbind.coroutine;
 public import lunarbind.object;
 public import lunarbind.export_;
 public import lunarbind.bind;
+public import lunarbind.stub;
 
 version (unittest)
     public import lunarbind.tests;
