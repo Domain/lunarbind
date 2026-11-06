@@ -34,3 +34,19 @@ int fixturePlain(int value)
 {
     return value + 1;
 }
+
+struct FixturePoint
+{
+    int x;
+    int y;
+}
+
+FixturePoint fixtureOrigin()
+{
+    return FixturePoint(0, 0);
+}
+
+FixturePoint fixtureShift(FixturePoint point, int dx, int dy)
+{
+    return FixturePoint(point.x + dx, point.y + dy);
+}

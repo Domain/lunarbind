@@ -237,13 +237,24 @@ write("mymodule.lua", luaStubs!(
 )());
 ```
 
-The builder emits `---@class`, `---@field`, `---@param`, `---@return`,
-`---@overload`, `---@vararg`, `---@enum` and `---@type` annotations. Classes
+The result starts with `---@meta` and declares the bound globals (not locals),
+so it can be written directly to a LuaLS meta/stub file. The builder emits
+`---@class`, `---@field`, `---@param`, `---@return`, `---@overload`,
+`---@vararg`, `---@enum` and `---@type` annotations. Classes
 include constructor overloads, instance methods (`function Name.method(self, ...)`)
 and static methods; struct type tables contain public static methods only,
 while struct values expose fields and instance methods; enum members use their
 integer or string values; modules contain every exported function with
 overloads listed as `---@overload`.
+
+Types referenced by public fields, properties, constructors and method
+signatures (and by module function signatures) are declared automatically and
+emitted before the type that uses them. Discovery follows arrays, associative
+arrays, `Nullable` and `Tuple`, honors `@LuaExport` names, and emits each type
+once even when references form a cycle. Lua handle types, `Object` and
+`Throwable` subclasses are never auto-declared. Auto-declared types assume the
+default class/struct representation; if a referenced type has a custom
+`registerCodec` representation, describe it explicitly instead.
 
 `LuaStubBuilder` supports incremental output:
 
@@ -431,7 +442,7 @@ rather than half-implemented.
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
 2. **Tooling**: benchmarks, docs, module builder, and richer stub output
-   (descriptions, custom codecs, referenced-type discovery).
+   (descriptions and custom-codec-aware types).
 3. **Lua 5.5** binding profile.
 
 ## License

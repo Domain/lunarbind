@@ -5,9 +5,10 @@ module lunarbind.tests;
 import lunarbind;
 import lunarbind.exportfixture;
 
-import std.algorithm.searching : canFind;
+import std.algorithm.searching : canFind, startsWith;
 import std.conv : to;
 import std.functional : toDelegate;
+import std.string : indexOf;
 import std.typecons : Nullable, Tuple, tuple;
 
 class Player
@@ -496,6 +497,38 @@ class Geometry
 class HasPoint
 {
     Point point;
+}
+
+struct Seed
+{
+    int value;
+}
+
+class Seeded
+{
+    int value;
+
+    this(Seed seed)
+    {
+        value = seed.value;
+    }
+}
+
+class HoldsExported
+{
+    ExportedClass box;
+}
+
+class PointCollections
+{
+    Point[] points;
+    Point[string] named;
+    Nullable!Point maybe;
+
+    Tuple!(int, Point) pair()
+    {
+        return tuple(1, Point(2, 3));
+    }
 }
 
 struct Vec2
@@ -1736,7 +1769,10 @@ unittest
     // Classes expose fields, properties, constructors, instance methods and
     // static methods. Private and skipped members are omitted.
     auto classStub = luaStubs!AutoBound();
+    assert(classStub.startsWith("---@meta\n"));
     assert(classStub.canFind("---@class AutoBound"));
+    assert(classStub.canFind("\nAutoBound = {}"));
+    assert(!classStub.canFind("local AutoBound"));
     assert(classStub.canFind("---@field public value integer"));
     assert(classStub.canFind("function AutoBound(value) end"));
     assert(classStub.canFind("function AutoBound.add(self, amount) end"));
@@ -1789,6 +1825,61 @@ unittest
     assert(derivedStub.canFind("---@class Dog : Animal"));
     assert(derivedStub.canFind("---@field public name string"));
 
+    // Types referenced by public fields, properties, constructors and method
+    // signatures are declared before the dependent type.
+    auto geometryStub = luaStubs!Geometry();
+    assert(geometryStub.indexOf("---@class Point")
+           < geometryStub.indexOf("---@class Geometry"));
+    assert(geometryStub.canFind("---@field public x integer"));
+    assert(geometryStub.canFind("function Geometry.sum(self, p) end"));
+    assert(geometryStub.canFind("function Geometry.make(self, x, y) end"));
+
+    auto hasPointStub = luaStubs!HasPoint();
+    assert(hasPointStub.indexOf("---@class Point")
+           < hasPointStub.indexOf("---@class HasPoint"));
+    assert(hasPointStub.canFind("---@field public point Point"));
+
+    // Enum references work from fields and method signatures.
+    auto paletteStub = luaStubs!Palette();
+    assert(paletteStub.indexOf("---@enum Color")
+           < paletteStub.indexOf("---@class Palette"));
+    assert(paletteStub.canFind("---@field public current Color"));
+    assert(paletteStub.canFind("---@param color Color"));
+    assert(paletteStub.canFind("---@return Color"));
+
+    // Referenced types keep their @LuaExport names.
+    auto holdsExportedStub = luaStubs!HoldsExported();
+    assert(holdsExportedStub.canFind("---@class RenamedBox"));
+    assert(holdsExportedStub.canFind("---@field public box RenamedBox"));
+    assert(!holdsExportedStub.canFind("---@class ExportedClass"));
+
+    // Constructor parameter types are discovered too.
+    auto seededStub = luaStubs!Seeded();
+    assert(seededStub.indexOf("---@class Seed")
+           < seededStub.indexOf("---@class Seeded"));
+    assert(seededStub.canFind("---@param seed Seed"));
+
+    // Discovery follows arrays, associative arrays, Nullable and Tuple.
+    auto collectionsStub = luaStubs!PointCollections();
+    assert(collectionsStub.indexOf("---@class Point")
+           < collectionsStub.indexOf("---@class PointCollections"));
+    assert(collectionsStub.canFind("---@field public points Point[]"));
+    assert(collectionsStub.canFind(
+        "---@field public named table<string, Point>"));
+    assert(collectionsStub.canFind("---@field public maybe Point|nil"));
+    assert(collectionsStub.canFind("---@return Point"));
+
+    // A struct referring to itself is declared exactly once.
+    auto selfStructStub = luaStubs!ExportedStruct();
+    auto selfIndex = selfStructStub.indexOf("---@class RenamedVec");
+    assert(selfIndex >= 0);
+    assert(selfStructStub.indexOf("---@class RenamedVec", selfIndex + 1) < 0);
+
+    // Lua handles are mapped to primitive types, not declared as classes.
+    auto capturedStub = luaStubs!capturedTable();
+    assert(capturedStub.canFind("---@type table"));
+    assert(!capturedStub.canFind("---@class LuaTable"));
+
     // Overloaded constructors become ---@overload entries.
     auto overloadedCtorStub = luaStubs!Overloaded();
     assert(overloadedCtorStub.canFind("---@overload fun(value: integer): Overloaded"));
@@ -1807,6 +1898,14 @@ unittest
     assert(!moduleStub.canFind("fixtureHidden"));
     assert(!moduleStub.canFind("fixtureSum"));
     assert(!moduleStub.canFind("fixturePick"));
+
+    // Module signatures discover referenced types before the module table.
+    assert(moduleStub.indexOf("---@class FixturePoint")
+           < moduleStub.indexOf("---@class renamedFixture"));
+    assert(moduleStub.canFind("---@param point FixturePoint"));
+    assert(moduleStub.canFind("function renamedFixture.fixtureOrigin() end"));
+    assert(moduleStub.canFind(
+        "function renamedFixture.fixtureShift(point, dx, dy) end"));
 
     // Free functions, injected LuaState parameters, defaults and variadics.
     assert(luaStubs!add().canFind("function add(a, b) end"));

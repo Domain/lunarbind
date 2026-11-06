@@ -12,20 +12,23 @@
 /// are used, skipped members are omitted, classes expose fields, properties,
 /// constructors, instance methods and static methods, structs expose fields,
 /// instance methods and static methods (no constructor), enums become
-/// `---@enum` tables, and modules become function tables.
+/// `---@enum` tables, and modules become function tables. Types referenced by
+/// exported members and signatures are declared automatically, so the output
+/// is self-contained.
 module lunarbind.stub;
 
 import lunarbind.bind : isModuleSymbol, isTypeSymbol, overloadSetLength;
-import lunarbind.conv : LuaString;
+import lunarbind.conv : LuaCodec, LuaString;
 import lunarbind.coroutine : LuaThread;
 import lunarbind.dispatch : fixedParamCount, isInjectedParameter,
                             typesafeVariadicElement;
 import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf,
                            luaTypeName;
 import lunarbind.function_ : LuaFunction;
-import lunarbind.object : fieldBindable, hasPropertyGetter, hasPropertySetter,
-                         isPublicMember, methodBindable, overloadBindable,
-                         propertyGetter, propertySetter, staticMethodBindable;
+import lunarbind.object : LuaClass, LuaStruct, fieldBindable, hasPropertyGetter,
+                         hasPropertySetter, isPublicMember, methodBindable,
+                         overloadBindable, propertyGetter, propertySetter,
+                         staticMethodBindable;
 import lunarbind.state : LuaRef, LuaState;
 import lunarbind.table : LuaTable;
 import lunarbind.value : LuaValue;
@@ -137,6 +140,34 @@ private template symbolValueType(alias Symbol)
         alias symbolValueType = Symbol;
     else
         alias symbolValueType = typeof(Symbol);
+}
+
+// Types that are worth declaring automatically when they appear in a public
+// field or signature. Lua handles are mapped to primitive Lua types, and the
+// D root/exception hierarchy is never part of a binding.
+private template isDiscoverableType(T)
+{
+    alias U = Unqual!T;
+    static if (is(U == class))
+        enum isDiscoverableType = !is(U == Object) && !is(U : Throwable);
+    else static if (is(U == struct))
+        enum isDiscoverableType =
+            !is(U == LuaValue)
+            && !is(U == LuaRef)
+            && !is(U == LuaTable)
+            && !is(U == LuaFunction)
+            && !is(U == LuaThread)
+            && !is(U == LuaString)
+            && !is(U == LuaState)
+            && !isInstanceOf!(Nullable, U)
+            && !isInstanceOf!(Tuple, U)
+            && !isInstanceOf!(LuaClass, U)
+            && !isInstanceOf!(LuaStruct, U)
+            && !isInstanceOf!(LuaCodec, U);
+    else static if (is(U == enum))
+        enum isDiscoverableType = true;
+    else
+        enum isDiscoverableType = false;
 }
 
 private template isStaticOverload(alias F)
@@ -561,14 +592,106 @@ struct LuaStubBuilder
         }}
     }
 
+    private void addReferenced(T)()
+    {
+        alias U = Unqual!T;
+        static if (isDynamicArray!U)
+            addReferenced!(typeof(U.init[0]))();
+        else static if (isAssociativeArray!U)
+        {
+            addReferenced!(typeof(U.init.keys[0]))();
+            addReferenced!(typeof(U.init.values[0]))();
+        }
+        else static if (isInstanceOf!(Nullable, U))
+            addReferenced!(typeof(U.init.get))();
+        else static if (isInstanceOf!(Tuple, U))
+        {
+            static foreach (E; FieldTypeTuple!U)
+                addReferenced!E();
+        }
+        else static if (isDiscoverableType!U)
+        {
+            static if (is(U == class))
+                addClass!U();
+            else static if (is(U == struct))
+                addStruct!U();
+            else static if (is(U == enum))
+                addEnum!U();
+        }
+    }
+
+    private void addReferencedFromFunction(alias F)()
+    {
+        static foreach (i, P; Parameters!F)
+        {{
+            static if (!isInjectedParameter!P)
+                addReferenced!P();
+        }}
+
+        alias R = ReturnType!F;
+        static if (!is(R == void))
+            addReferenced!R();
+    }
+
+    private void addReferencedMembers(T, bool includeConstructors = false)()
+    {
+        static foreach (member; __traits(allMembers, T))
+        {{
+            static if (isPublicMember!(T, member)
+                       && isLuaExportedMember!(T, member))
+            {
+                static if (isInstanceProperty!(T, member))
+                {
+                    static if (hasPropertyGetter!(T, member))
+                        addReferenced!(ReturnType!(propertyGetter!(T, member)))();
+                    else static if (hasPropertySetter!(T, member))
+                        addReferenced!(Parameters!(propertySetter!(T, member))[0])();
+                }
+                else static if (fieldBindable!(T, member))
+                    addReferenced!(typeof(__traits(getMember, T.init, member)))();
+                else static if (staticMethodBindable!(T, member)
+                                || methodBindable!(T, member))
+                {
+                    static foreach (F; __traits(getOverloads, T, member))
+                    {{
+                        static if (overloadBindable!F)
+                            addReferencedFromFunction!F();
+                    }}
+                }
+            }
+        }}
+
+        static if (includeConstructors
+                   && __traits(compiles, __traits(getOverloads, T, "__ctor")))
+            static foreach (Ctor; __traits(getOverloads, T, "__ctor"))
+            {{
+                static if (overloadBindable!Ctor
+                           && __traits(compiles, new T(Parameters!Ctor.init)))
+                    addReferencedFromFunction!Ctor();
+            }}
+    }
+
     /// Add a global function or overload set.
     void addFunction(alias Symbol)(string name = luaNameOf!Symbol)
     {
         static if (overloadSetLength!Symbol > 1)
+        {
+            static foreach (F; __traits(getOverloads, __traits(parent, Symbol),
+                                        __traits(identifier, Symbol)))
+            {{
+                static if (overloadBindable!F)
+                    addReferencedFromFunction!F();
+            }}
             putFunctionSet!(__traits(parent, Symbol),
                             __traits(identifier, Symbol))("", name);
+        }
         else
+        {
+            static if (__traits(compiles, Parameters!Symbol)
+                       && __traits(compiles, ReturnType!Symbol))
+                addReferencedFromFunction!Symbol();
             putSingleFunction!Symbol("", name);
+        }
     }
 
     /// Add a class type table.
@@ -580,6 +703,10 @@ struct LuaStubBuilder
         if (isDeclared(name))
             return;
 
+        // Mark the type before traversing so self-references and cycles do not
+        // recurse, then emit referenced types and the base class first.
+        markDeclared(name);
+
         // Emit bindable base classes first so `---@class Derived : Base`
         // refers to a declared type. Object is the implicit D root and has no
         // Lua binding.
@@ -587,9 +714,7 @@ struct LuaStubBuilder
                    && !is(BaseClassesTuple!T[0] == Object))
             addClass!(BaseClassesTuple!T[0])();
 
-        if (isDeclared(name))
-            return;
-        markDeclared(name);
+        addReferencedMembers!(T, true)();
 
         string header = "---@class " ~ name;
         static if (BaseClassesTuple!T.length
@@ -597,7 +722,7 @@ struct LuaStubBuilder
             header ~= " : " ~ luaTypeName!(BaseClassesTuple!T[0]);
         putLine(header);
         putFields!T();
-        putLine("local " ~ name ~ " = {}");
+        putLine(name ~ " = {}");
         putBlank();
         putConstructors!T(name);
         putMethods!T(name);
@@ -613,10 +738,13 @@ struct LuaStubBuilder
             return;
         markDeclared(name);
 
+        // Struct values are value-only, so there is no constructor to inspect.
+        addReferencedMembers!(S, false)();
+
         putLine("---@class " ~ name);
         putFields!S();
         putInstanceMethodFields!S(name);
-        putLine("local " ~ name ~ " = {}");
+        putLine(name ~ " = {}");
         putBlank();
 
         // Struct type tables expose static methods only; values are boxed
@@ -660,8 +788,21 @@ struct LuaStubBuilder
             return;
         markDeclared(name);
 
+        // Declare types used by exported function signatures before the
+        // module table itself.
+        static foreach (member; __traits(allMembers, Module))
+        {{
+            static if (moduleMemberPublic!(Module, member)
+                       && moduleMemberBindable!(Module, member))
+                static foreach (F; __traits(getOverloads, Module, member))
+                {{
+                    static if (overloadBindable!F)
+                        addReferencedFromFunction!F();
+                }}
+        }}
+
         putLine("---@class " ~ name);
-        putLine("local " ~ name ~ " = {}");
+        putLine(name ~ " = {}");
         putBlank();
 
         static foreach (member; __traits(allMembers, Module))
@@ -678,6 +819,7 @@ struct LuaStubBuilder
     void addValue(alias Symbol)(string name,
                                 string luaType = luaStubType!(symbolValueType!Symbol))
     {
+        addReferenced!(symbolValueType!Symbol)();
         putLine("---@type " ~ luaType);
         putLine(name ~ " = nil");
         putBlank();
@@ -720,10 +862,13 @@ struct LuaStubBuilder
 }
 
 /// Generate EmmyLua declarations for a list of compile-time symbols.
+///
+/// The result starts with `---@meta` and declares the bound globals, so it can
+/// be written directly to a LuaLS meta/stub file.
 string luaStubs(Symbols...)()
 {
     LuaStubBuilder builder;
     static foreach (Symbol; Symbols)
         builder.addSymbol!Symbol();
-    return builder.toString();
+    return "---@meta\n\n" ~ builder.toString();
 }

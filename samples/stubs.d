@@ -57,6 +57,19 @@ enum Status
     @LuaExport(skip: true) legacy,
 }
 
+// Player and Vec are not listed below; they are discovered from World's field
+// and method signature.
+@LuaExport("World")
+class World
+{
+    @LuaExport("player") Player player;
+
+    @LuaExport("spawn") Vec spawn(double x, double y)
+    {
+        return Vec(x, y);
+    }
+}
+
 int add(int a, int b = 1)
 {
     return a + b;
@@ -65,5 +78,5 @@ int add(int a, int b = 1)
 void main()
 {
     // No Lua state is needed: stub generation only inspects D symbols.
-    writeln(luaStubs!(Player, Vec, Status, add)());
+    writeln(luaStubs!(World, Status, add)());
 }
