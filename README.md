@@ -363,6 +363,26 @@ On macOS: install a Lua development package (for example `brew install lua`
 or `brew install lua@5.4`) or `luajit`. The build does **not** vendor Lua
 binaries; you choose dynamic/static linking.
 
+### Benchmarks
+
+`bench/bench.d` compares pure-Lua code against bound D functions, field reads
+and writes, method calls, class construction and struct field writes, plus
+D-side push/get and table access. Run it after the tests for each selected
+profile:
+
+```bash
+./tools/test-lua.sh --profiles lua54 --bench
+```
+
+```powershell
+.\tools\test-lua.ps1 -Profiles lua54 -Bench
+```
+
+The results are useful for relative comparisons (such as the cost a binding
+call adds over a pure-Lua call) and for spotting regressions between lunarbind
+versions, not as absolute performance guarantees. CI runs the benchmark on the
+LDC leg of the Linux and Windows runtime matrices.
+
 The module has **no D dependencies** beyond the D runtime, so `dub build` does
 not need network access. `dub test` links against the selected Lua library.
 
@@ -448,8 +468,8 @@ rather than half-implemented.
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
    seeded randomized stress tests, coverage-guided fuzzing, and `@nogc` fast
    paths where possible.
-2. **Tooling**: benchmarks, docs, module builder, and richer stub output
-   (descriptions and custom-codec-aware types).
+2. **Tooling**: module builder, stub descriptions and custom-codec-aware
+   types, and richer documentation generation.
 
 ## License
 

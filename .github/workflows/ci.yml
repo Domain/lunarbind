@@ -68,7 +68,7 @@ jobs:
           path: .lua/linux
           key: ${{ runner.os }}-lua-${{ hashFiles('tools/test-lua.sh') }}
       - name: Build and test all profiles from source
-        run: ./tools/test-lua.sh --compiler=${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }}
+        run: ./tools/test-lua.sh --compiler=${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }} ${{ matrix.dc == 'ldc-latest' && '--bench' || '' }}
 
   windows:
     name: windows / ${{ matrix.dc }}
@@ -91,7 +91,7 @@ jobs:
           key: ${{ runner.os }}-lua-${{ hashFiles('tools/test-lua.ps1') }}
       - name: Build and test all profiles
         shell: pwsh
-        run: ./tools/test-lua.ps1 -Compiler ${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }}
+        run: ./tools/test-lua.ps1 -Compiler ${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }} ${{ matrix.dc == 'ldc-latest' && '-Bench' || '' }}
 
   macos:
     name: macos / ${{ matrix.config }}

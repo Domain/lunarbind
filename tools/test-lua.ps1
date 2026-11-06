@@ -9,18 +9,21 @@
     MSVC (the same toolchain LDC uses on Windows).
 
     Downloaded/built runtimes are cached under .lua/ in the repository and are
-    not committed. Use -Force to refresh them.
+    not committed. Use -Force to refresh them. Pass -Bench to also build and
+    run bench/bench.d against each profile after its tests pass.
 
 .EXAMPLE
     .\tools\test-lua.ps1
     .\tools\test-lua.ps1 -Profiles lua54,luajit
     .\tools\test-lua.ps1 -Compiler dmd -Profiles lua54
+    .\tools\test-lua.ps1 -Bench -Profiles lua54
 #>
 param(
     [string[]]$Profiles = @("lua51", "lua52", "lua53", "lua54", "lua55", "luajit"),
     [string]$Compiler = "ldc2",
     [string]$Dub = "dub",
-    [switch]$Force
+    [switch]$Force,
+    [switch]$Bench
 )
 
 $ErrorActionPreference = "Stop"
@@ -233,6 +236,49 @@ LUNARBIND_LUAJIT_LIB and LUNARBIND_LUAJIT_DLL to an existing LuaJIT build.
     Write-Host "  runtime ready: $dir"
 }
 
+function Get-ProfileVersions {
+    param([string]$Profile)
+
+    switch ($Profile) {
+        "lua51" { return @("LUA_51") }
+        "lua52" { return @("LUA_52") }
+        "lua53" { return @("LUA_53") }
+        "lua54" { return @("LUA_54") }
+        "lua55" { return @("LUA_55") }
+        "luajit" { return @("LUA_51", "LUAJIT") }
+        default { throw "unknown Lua profile: $Profile" }
+    }
+}
+
+function Invoke-ProfileBench {
+    param([string]$Profile, [string]$Runtime)
+
+    $libName = if ($Profile -eq "luajit") { "lua51.lib" }
+               else { "lua$($Profile.Substring(3)).lib" }
+    $lib = Join-Path $Runtime $libName
+    $exe = Join-Path $Runtime "lunarbind-bench.exe"
+    $source = Join-Path $Root "source"
+    $entry = Join-Path $Root "bench\bench.d"
+
+    $versionFlag = if ($Compiler -match "dmd") { "-version=" } else { "-d-version=" }
+    $args = @("-i", "-I$source", "-O")
+    foreach ($version in Get-ProfileVersions $Profile) {
+        $args += "$versionFlag$version"
+    }
+    $args += @($entry, $lib, "-of=$exe")
+
+    Write-Host "  building benchmark"
+    & $Compiler @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "benchmark build failed for $Profile"
+    }
+
+    & $exe
+    if ($LASTEXITCODE -ne 0) {
+        throw "benchmark failed for $Profile"
+    }
+}
+
 function Invoke-ProfileTest {
     param([string]$Profile)
 
@@ -256,6 +302,10 @@ function Invoke-ProfileTest {
         if ($LASTEXITCODE -ne 0) {
             throw "tests failed for $Profile"
         }
+
+        if ($Bench) {
+            Invoke-ProfileBench $Profile $runtime
+        }
     }
     finally {
         $env:PATH = $oldPath
@@ -267,6 +317,7 @@ Write-Host "lunarbind Lua runtime test"
 Write-Host "  root:     $Root"
 Write-Host "  compiler: $Compiler"
 Write-Host "  profiles: $($Profiles -join ', ')"
+Write-Host "  bench:    $(if ($Bench) { 'yes' } else { 'no' })"
 
 foreach ($profile in $Profiles) {
     Invoke-ProfileTest $profile

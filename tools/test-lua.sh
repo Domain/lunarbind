@@ -3,7 +3,8 @@
 #
 # Lua 5.1-5.5 are built from the official lua.org sources. LuaJIT is built from
 # its official git source. Static libraries are cached under .lua/linux/ and are
-# not committed.
+# not committed. Pass --bench to also build and run bench/bench.d against each
+# profile after its tests pass.
 set -euo pipefail
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -15,6 +16,7 @@ profiles=(lua51 lua52 lua53 lua54 lua55 luajit)
 compiler=${COMPILER:-ldc2}
 dub=${DUB:-dub}
 force=0
+bench=0
 
 usage() {
     cat <<'EOF'
@@ -25,6 +27,7 @@ Options:
   --compiler NAME   D compiler passed to dub (default: ldc2)
   --dub PATH        dub executable (default: dub)
   --force           Re-download and rebuild cached runtimes
+  --bench           Build and run bench/bench.d for each profile
   -h, --help        Show this help
 EOF
 }
@@ -57,6 +60,10 @@ while (($#)); do
             ;;
         --force)
             force=1
+            shift
+            ;;
+        --bench)
+            bench=1
             shift
             ;;
         -h | --help)
@@ -191,6 +198,56 @@ build_luajit() {
     echo "  runtime ready: $libdir"
 }
 
+run_bench() {
+    local profile=$1 runtime=$2 version lib exe
+    local -a versions
+    case "$profile" in
+        lua51) versions=(LUA_51) ;;
+        lua52) versions=(LUA_52) ;;
+        lua53) versions=(LUA_53) ;;
+        lua54) versions=(LUA_54) ;;
+        lua55) versions=(LUA_55) ;;
+        luajit) versions=(LUA_51 LUAJIT) ;;
+        *)
+            echo "unknown profile: $profile" >&2
+            return 1
+            ;;
+    esac
+
+    if [[ $profile == luajit ]]; then
+        lib="$runtime_root/luajit/lib/libluajit-5.1.a"
+    else
+        version=$(lua_version "$profile")
+        lib="$runtime_root/$profile/lib/liblua${version%.*}.a"
+    fi
+
+    local -a flags=() link=()
+    local def
+    if [[ $compiler == *dmd* ]]; then
+        for def in "${versions[@]}"; do
+            flags+=("-version=$def")
+        done
+        link=(-L-lm -L-ldl)
+    else
+        for def in "${versions[@]}"; do
+            flags+=("-d-version=$def")
+        done
+        link=(-L=-lm -L=-ldl)
+    fi
+
+    exe="$runtime_root/$profile/lunarbind-bench"
+    echo "  building benchmark"
+    if ! "$compiler" -i -I"$root/source" -O "${flags[@]}" \
+        "$root/bench/bench.d" "$lib" -of="$exe" "${link[@]}"; then
+        echo "benchmark build failed for $profile" >&2
+        return 1
+    fi
+
+    LIBRARY_PATH="$runtime${LIBRARY_PATH:+:$LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        "$exe"
+}
+
 run_profile() {
     local profile=$1 runtime
     echo
@@ -214,12 +271,17 @@ run_profile() {
     LIBRARY_PATH="$runtime${LIBRARY_PATH:+:$LIBRARY_PATH}" \
         LD_LIBRARY_PATH="$runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         "$dub" "${args[@]}"
+
+    if [[ $bench -eq 1 ]]; then
+        run_bench "$profile" "$runtime"
+    fi
 }
 
 echo "lunarbind Lua runtime test"
 echo "  root:     $root"
 echo "  compiler: $compiler"
 echo "  profiles: ${profiles[*]}"
+echo "  bench:    $([[ $bench -eq 1 ]] && echo yes || echo no)"
 
 for profile in "${profiles[@]}"; do
     run_profile "$profile"
