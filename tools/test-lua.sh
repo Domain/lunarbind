@@ -93,7 +93,9 @@ lua_version() {
         lua52) echo 5.2.4 ;;
         lua53) echo 5.3.6 ;;
         lua54) echo 5.4.8 ;;
-        lua55) echo 5.5.0 ;;
+        # LuaBinaries only ships 5.5.0 on Windows; Linux tracks the latest
+        # patch release so both patch versions are covered by CI.
+        lua55) echo 5.5.1 ;;
         *) return 1 ;;
     esac
 }
