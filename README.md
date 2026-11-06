@@ -345,6 +345,9 @@ Both scripts default to all six profiles, cache runtimes under `.lua/`
 
 CI runs the distro-package matrix on Linux, the source-built runtime matrix on
 Linux and Windows (LDC and DMD), and Homebrew-based builds on macOS (LDC).
+The unittest build also runs a seeded randomized stress test
+(`source/lunarbind/fuzz.d`) over conversions, tables, functions, classes and
+structs on every profile.
 
 If you already have Lua development libraries installed, plain `dub test` still
 works:
@@ -443,7 +446,8 @@ rather than half-implemented.
 ## Roadmap
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
-   fuzzing, and `@nogc` fast paths where possible.
+   seeded randomized stress tests, coverage-guided fuzzing, and `@nogc` fast
+   paths where possible.
 2. **Tooling**: benchmarks, docs, module builder, and richer stub output
    (descriptions and custom-codec-aware types).
 
