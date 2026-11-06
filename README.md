@@ -258,6 +258,7 @@ write("mymodule.lua", builder.toString());
 As with explicit `toLua!symbol(L)`, listing a symbol explicitly includes it
 even when it carries `@LuaExport(skip: true)`; `skip` only filters automatic
 tables (module members, class/struct members and enum members).
+`samples/stubs.d` prints a complete stub file for a small annotated API.
 
 Custom representations are registered per state and override the default
 `LuaStruct!S`/`LuaClass!T` conversion:
@@ -430,7 +431,7 @@ rather than half-implemented.
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
 2. **Tooling**: benchmarks, docs, module builder, and richer stub output
-   (descriptions, custom codecs, base-class closure).
+   (descriptions, custom codecs, referenced-type discovery).
 3. **Lua 5.5** binding profile.
 
 ## License

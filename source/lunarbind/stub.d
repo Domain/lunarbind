@@ -17,6 +17,7 @@ module lunarbind.stub;
 
 import lunarbind.bind : isModuleSymbol, isTypeSymbol, overloadSetLength;
 import lunarbind.conv : LuaString;
+import lunarbind.coroutine : LuaThread;
 import lunarbind.dispatch : fixedParamCount, isInjectedParameter,
                             typesafeVariadicElement;
 import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf,
@@ -32,12 +33,11 @@ import lunarbind.value : LuaValue;
 import std.algorithm : canFind;
 import std.array : Appender, join;
 import std.conv : to;
-import std.traits : BaseClassesTuple, FieldTypeTuple, FunctionAttribute,
-                    functionAttributes, isAssociativeArray, isDynamicArray,
-                    isFloatingPoint, isInstanceOf, isIntegral, isPointer,
-                    isSomeFunction, isSomeString, OriginalType, ParameterDefaults,
-                    ParameterIdentifierTuple, Parameters, ReturnType, Unqual,
-                    Variadic, variadicFunctionStyle;
+import std.traits : BaseClassesTuple, FieldTypeTuple, isAssociativeArray,
+                    isDynamicArray, isFloatingPoint, isInstanceOf, isIntegral,
+                    isPointer, isSomeFunction, isSomeString, OriginalType,
+                    ParameterDefaults, ParameterIdentifierTuple, Parameters,
+                    ReturnType, Unqual, Variadic, variadicFunctionStyle;
 import std.typecons : Nullable, Tuple;
 
 // ---------------------------------------------------------------------------
@@ -61,6 +61,8 @@ package string luaStubType(T)()
         return "table";
     else static if (is(U == LuaFunction))
         return "function";
+    else static if (is(U == LuaThread))
+        return "thread";
     else static if (is(U == LuaString))
         return "string";
     else static if (is(U == LuaState))
@@ -467,7 +469,7 @@ struct LuaStubBuilder
         }
     }
 
-    private void putFields(T)(string name)
+    private void putFields(T)()
     {
         string[] emitted;
         static foreach (member; __traits(allMembers, T))
@@ -577,6 +579,16 @@ struct LuaStubBuilder
 
         if (isDeclared(name))
             return;
+
+        // Emit bindable base classes first so `---@class Derived : Base`
+        // refers to a declared type. Object is the implicit D root and has no
+        // Lua binding.
+        static if (BaseClassesTuple!T.length
+                   && !is(BaseClassesTuple!T[0] == Object))
+            addClass!(BaseClassesTuple!T[0])();
+
+        if (isDeclared(name))
+            return;
         markDeclared(name);
 
         string header = "---@class " ~ name;
@@ -584,7 +596,7 @@ struct LuaStubBuilder
                    && !is(BaseClassesTuple!T[0] == Object))
             header ~= " : " ~ luaTypeName!(BaseClassesTuple!T[0]);
         putLine(header);
-        putFields!T(name);
+        putFields!T();
         putLine("local " ~ name ~ " = {}");
         putBlank();
         putConstructors!T(name);
@@ -602,7 +614,7 @@ struct LuaStubBuilder
         markDeclared(name);
 
         putLine("---@class " ~ name);
-        putFields!S(name);
+        putFields!S();
         putInstanceMethodFields!S(name);
         putLine("local " ~ name ~ " = {}");
         putBlank();

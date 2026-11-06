@@ -1728,6 +1728,7 @@ unittest
     assert(luaStubType!LuaValue() == "any");
     assert(luaStubType!LuaTable() == "table");
     assert(luaStubType!LuaFunction() == "function");
+    assert(luaStubType!LuaThread() == "thread");
     assert(luaStubType!ExportedClass() == "RenamedBox");
     assert(luaStubType!ExportedColor() == "RenamedColor");
     assert(luaStubType!void() == "nil");
@@ -1781,6 +1782,12 @@ unittest
     auto namedStub = luaStubs!Named();
     assert(namedStub.canFind(`first = "one"`));
     assert(namedStub.canFind(`second = "two"`));
+
+    // Base classes are emitted before derived classes.
+    auto derivedStub = luaStubs!Dog();
+    assert(derivedStub.canFind("---@class Animal"));
+    assert(derivedStub.canFind("---@class Dog : Animal"));
+    assert(derivedStub.canFind("---@field public name string"));
 
     // Overloaded constructors become ---@overload entries.
     auto overloadedCtorStub = luaStubs!Overloaded();
