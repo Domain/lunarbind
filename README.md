@@ -1,11 +1,11 @@
 # lunarbind
 
-**A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.4.
+**A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.5.
 
 > Status: **early scaffold (v0.1)**. The core API, conversion layer, callbacks and
 > a first userdata/object model are implemented and compile with LDC 1.43 and
-> DMD 2.111 against Lua 5.1–5.4 API profiles. The runtime smoke tests pass
-> against Lua 5.1–5.4 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD)
+> DMD 2.111 against Lua 5.1–5.5 API profiles. The runtime smoke tests pass
+> against Lua 5.1–5.5 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD)
 > using the bundled test scripts. References created inside callbacks share the
 > owner state core, and cross-state use is rejected. The public API is not frozen
 > yet.
@@ -321,6 +321,7 @@ DUB configurations (pick one):
 | `lua52` | Lua 5.2 |
 | `lua53` | Lua 5.3 |
 | `lua54` | Lua 5.4 |
+| `lua55` | Lua 5.5 |
 | `luajit` | LuaJIT (`LUA_51` + `LUAJIT`) |
 
 ```bash
@@ -338,7 +339,7 @@ builds LuaJIT with MSVC:
 .\tools\test-lua.ps1 -Profiles lua54
 ```
 
-Both scripts default to all five profiles, cache runtimes under `.lua/`
+Both scripts default to all six profiles, cache runtimes under `.lua/`
 (git-ignored), and use `ldc2`/`dub` from `PATH` unless told otherwise
 (`--compiler` / `-Compiler`). No Lua binaries are committed.
 
@@ -347,11 +348,13 @@ works:
 
 ```bash
 sudo apt install liblua5.4-dev      # for lua54
+sudo apt install liblua5.5-dev      # for lua55, if your distro packages it
 sudo apt install libluajit-5.1-dev  # for luajit
 dub test --config=lua54
 ```
 
-On macOS: `brew install lua@5.4` or `luajit`. The build does **not** vendor Lua
+On macOS: install a Lua development package (for example `brew install lua`
+or `brew install lua@5.4`) or `luajit`. The build does **not** vendor Lua
 binaries; you choose dynamic/static linking.
 
 The module has **no D dependencies** beyond the D runtime, so `dub build` does
@@ -398,9 +401,6 @@ Goals and non-goals:
   keep identity and GC safety across the boundary; predictable performance.
 - **Non-goal (for v0.1):** source compatibility with lumars. A compatibility
   shim may be added later.
-- **Lua 5.5:** not yet. Lua 5.5 changed `LUA_REGISTRYINDEX`, `luaL_openlibs`,
-  the GC constants, `lua_Debug` and `lua_newstate`; add a dedicated profile
-  when the bindings are extended.
 
 ### Current object-model scope
 
@@ -439,11 +439,10 @@ rather than half-implemented.
 
 ## Roadmap
 
-1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.4 + LuaJIT; LDC/DMD),
+1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
    fuzzing, and `@nogc` fast paths where possible.
 2. **Tooling**: benchmarks, docs, module builder, and richer stub output
    (descriptions and custom-codec-aware types).
-3. **Lua 5.5** binding profile.
 
 ## License
 

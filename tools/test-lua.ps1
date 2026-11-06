@@ -4,7 +4,7 @@
     Fetch Lua runtimes and run the lunarbind test suite for every profile.
 
 .DESCRIPTION
-    Lua 5.1-5.4 are downloaded as prebuilt Visual Studio import libraries and
+    Lua 5.1-5.5 are downloaded as prebuilt Visual Studio import libraries and
     DLLs from LuaBinaries. LuaJIT is built from its official git source with
     MSVC (the same toolchain LDC uses on Windows).
 
@@ -17,7 +17,7 @@
     .\tools\test-lua.ps1 -Compiler dmd -Profiles lua54
 #>
 param(
-    [string[]]$Profiles = @("lua51", "lua52", "lua53", "lua54", "luajit"),
+    [string[]]$Profiles = @("lua51", "lua52", "lua53", "lua54", "lua55", "luajit"),
     [string]$Compiler = "ldc2",
     [string]$Dub = "dub",
     [switch]$Force
@@ -71,6 +71,14 @@ $LuaPackages = @{
         PackageDll = "lua54.dll"
         Lib        = "lua54.lib"
         Dll        = "lua54.dll"
+    }
+    lua55 = @{
+        Version    = "5.5.0"
+        Package    = "lua-5.5.0_${Arch}_dll17_lib.zip"
+        PackageLib = "lua55.lib"
+        PackageDll = "lua55.dll"
+        Lib        = "lua55.lib"
+        Dll        = "lua55.dll"
     }
 }
 

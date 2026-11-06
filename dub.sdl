@@ -1,5 +1,5 @@
 name "lunarbind"
-description "A transparent, layered D <-> Lua binding (LuaJIT and Lua 5.1-5.4)."
+description "A transparent, layered D <-> Lua binding (LuaJIT and Lua 5.1-5.5)."
 authors "lunarbind contributors"
 copyright "Copyright © 2026 lunarbind contributors"
 license "MIT"
@@ -31,6 +31,13 @@ configuration "lua54" {
     libs "lua54" platform="windows"
     libs "lua5.4" "m" "dl" platform="linux"
     libs "lua5.4" platform="osx"
+}
+
+configuration "lua55" {
+    versions "LUA_55"
+    libs "lua55" platform="windows"
+    libs "lua5.5" "m" "dl" platform="linux"
+    libs "lua5.5" platform="osx"
 }
 
 configuration "luajit" {

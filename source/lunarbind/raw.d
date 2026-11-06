@@ -3,13 +3,15 @@
 /// This module deliberately has **no external D dependencies**.  It only
 /// declares the C entry points the high-level layers use, plus small D
 /// helpers that paper over the differences between Lua 5.1 (and LuaJIT),
-/// 5.2, 5.3 and 5.4.
+/// 5.2, 5.3, 5.4 and 5.5.
 ///
 /// Select exactly one version via a DUB configuration (or `-version=`):
-/// `LUA_51`, `LUA_52`, `LUA_53`, `LUA_54`; add `LUAJIT` for LuaJIT.
+/// `LUA_51`, `LUA_52`, `LUA_53`, `LUA_54`, `LUA_55`; add `LUAJIT` for LuaJIT.
 module lunarbind.raw;
 
-version (LUA_54)
+version (LUA_55)
+    enum LUA_VERSION_NUM = 505;
+else version (LUA_54)
     enum LUA_VERSION_NUM = 504;
 else version (LUA_53)
     enum LUA_VERSION_NUM = 503;
@@ -18,7 +20,7 @@ else version (LUA_52)
 else version (LUA_51)
     enum LUA_VERSION_NUM = 501;
 else
-    static assert(0, "lunarbind: select a Lua version (LUA_51, LUA_52, LUA_53 or LUA_54)");
+    static assert(0, "lunarbind: select a Lua version (LUA_51, LUA_52, LUA_53, LUA_54 or LUA_55)");
 
 version (LUAJIT)
     enum isLuaJIT = true;
@@ -52,7 +54,9 @@ struct luaL_Reg
 
 enum int LUA_MULTRET = -1;
 
-enum int LUA_REGISTRYINDEX = (LUA_VERSION_NUM == 501) ? -10000 : -1001000;
+enum int LUA_REGISTRYINDEX = (LUA_VERSION_NUM == 501) ? -10000
+    : (LUA_VERSION_NUM >= 505) ? -(int.max / 2 + 1000)
+    : -1001000;
 enum int LUA_GLOBALSINDEX = -10002;
 enum int LUA_RIDX_GLOBALS = 2;
 enum int LUA_NOREF = -2;
@@ -96,8 +100,6 @@ enum int LUA_GCSTEP = 5;
 extern(C) nothrow @nogc
 {
     lua_State* luaL_newstate();
-    void       luaL_openlibs(lua_State* L);
-    lua_State* lua_newstate(lua_Alloc f, void* ud);
     void       lua_close(lua_State* L);
     lua_State* lua_newthread(lua_State* L);
     int        lua_pushthread(lua_State* L);
@@ -149,7 +151,6 @@ extern(C) nothrow @nogc
     int  lua_status(lua_State* L);
 
     int  luaL_loadstring(lua_State* L, const(char)* s);
-    int  luaL_loadfile(lua_State* L, const(char)* filename);
     int  luaL_newmetatable(lua_State* L, const(char)* tname);
     void* luaL_checkudata(lua_State* L, int ud, const(char)* tname);
     int  luaL_ref(lua_State* L, int t);
@@ -160,6 +161,51 @@ extern(C) nothrow @nogc
     lua_Number  luaL_checknumber(lua_State* L, int arg);
     void luaL_checktype(lua_State* L, int arg, int t);
     void luaL_checkany(lua_State* L, int arg);
+}
+
+static if (LUA_VERSION_NUM >= 505)
+{
+    extern(C) nothrow @nogc
+    {
+        lua_State* lua_newstate(lua_Alloc f, void* ud, uint seed);
+        void luaL_openselectedlibs(lua_State* L, int load, int preload);
+    }
+
+    // Lua 5.5 turns luaL_openlibs into a macro over luaL_openselectedlibs.
+    void luaL_openlibs(lua_State* L) nothrow @nogc
+    {
+        luaL_openselectedlibs(L, -1, 0);
+    }
+}
+else
+{
+    extern(C) nothrow @nogc
+    {
+        lua_State* lua_newstate(lua_Alloc f, void* ud);
+        void luaL_openlibs(lua_State* L);
+    }
+}
+
+static if (LUA_VERSION_NUM == 501)
+{
+    extern(C) nothrow @nogc
+    {
+        int luaL_loadfile(lua_State* L, const(char)* filename);
+    }
+}
+else
+{
+    extern(C) nothrow @nogc
+    {
+        int luaL_loadfilex(lua_State* L, const(char)* filename,
+                           const(char)* mode);
+    }
+
+    // luaL_loadfile is a macro over luaL_loadfilex in Lua 5.2+.
+    int luaL_loadfile(lua_State* L, const(char)* filename) nothrow @nogc
+    {
+        return luaL_loadfilex(L, filename, null);
+    }
 }
 
 // ---------------------------------------------------------------------------

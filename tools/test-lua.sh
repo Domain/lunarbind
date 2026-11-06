@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch Lua runtimes and run the lunarbind test suite for every profile.
 #
-# Lua 5.1-5.4 are built from the official lua.org sources. LuaJIT is built from
+# Lua 5.1-5.5 are built from the official lua.org sources. LuaJIT is built from
 # its official git source. Static libraries are cached under .lua/linux/ and are
 # not committed.
 set -euo pipefail
@@ -11,7 +11,7 @@ runtime_root="$root/.lua/linux"
 download_root="$runtime_root/downloads"
 source_root="$runtime_root/src"
 
-profiles=(lua51 lua52 lua53 lua54 luajit)
+profiles=(lua51 lua52 lua53 lua54 lua55 luajit)
 compiler=${COMPILER:-ldc2}
 dub=${DUB:-dub}
 force=0
@@ -21,7 +21,7 @@ usage() {
 Usage: tools/test-lua.sh [options]
 
 Options:
-  --profiles LIST   Comma-separated profiles (default: lua51,lua52,lua53,lua54,luajit)
+  --profiles LIST   Comma-separated profiles (default: lua51,lua52,lua53,lua54,lua55,luajit)
   --compiler NAME   D compiler passed to dub (default: ldc2)
   --dub PATH        dub executable (default: dub)
   --force           Re-download and rebuild cached runtimes
@@ -93,6 +93,7 @@ lua_version() {
         lua52) echo 5.2.4 ;;
         lua53) echo 5.3.6 ;;
         lua54) echo 5.4.8 ;;
+        lua55) echo 5.5.0 ;;
         *) return 1 ;;
     esac
 }
@@ -195,7 +196,7 @@ run_profile() {
 
     case "$profile" in
         luajit) build_luajit ;;
-        lua51 | lua52 | lua53 | lua54) build_lua "$profile" ;;
+        lua51 | lua52 | lua53 | lua54 | lua55) build_lua "$profile" ;;
         *)
             echo "unknown profile: $profile" >&2
             return 1
