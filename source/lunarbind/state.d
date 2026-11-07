@@ -27,7 +27,7 @@ final class StateCore
     // identities; values are GC-managed so they stay alive with the core.
     private Object[TypeInfo] _extensions;
 
-    this(lua_State* L, bool ownsClose) nothrow
+    this(lua_State* L, bool ownsClose) @nogc nothrow
     {
         this.L = L;
         this.ownsClose = ownsClose;
@@ -47,20 +47,20 @@ final class StateCore
             _extensions[type] = value;
     }
 
-    void retain() nothrow
+    void retain() @nogc nothrow
     {
         assert(refs > 0);
         refs++;
     }
 
-    void release() nothrow
+    void release() @nogc nothrow
     {
         assert(refs > 0);
         if (--refs == 0)
             close();
     }
 
-    void close() nothrow
+    void close() @nogc nothrow
     {
         if (closed)
             return;
@@ -71,7 +71,7 @@ final class StateCore
         L = null;
     }
 
-    ~this() nothrow
+    ~this() @nogc nothrow
     {
         close();
     }
@@ -146,7 +146,7 @@ struct LuaState
     /// Adopt an existing core, retaining it. `handle` selects the thread whose
     /// stack this wrapper addresses; it defaults to the core's main state.
     private this(StateCore core, bool retain,
-                 lua_State* handle = null) nothrow
+                 lua_State* handle = null) @nogc nothrow
     {
         _core = core;
         _handle = handle is null ? core.L : handle;
@@ -154,19 +154,19 @@ struct LuaState
             _core.retain();
     }
 
-    this(this) nothrow
+    this(this) @nogc nothrow
     {
         if (_core !is null)
             _core.retain();
     }
 
-    ~this() nothrow
+    ~this() @nogc nothrow
     {
         if (_core !is null)
             _core.release();
     }
 
-    ref LuaState opAssign(LuaState rhs) return
+    ref LuaState opAssign(LuaState rhs) @nogc nothrow return
     {
         if (_core is rhs._core && _handle is rhs._handle)
             return this;
@@ -308,7 +308,7 @@ struct LuaState
     }
 
     /// True when both handles share the same StateCore (same Lua universe).
-    bool sharesState(LuaState other)
+    bool sharesState(LuaState other) @nogc nothrow
     {
         return _core is other._core;
     }
@@ -405,7 +405,7 @@ struct LuaState
     /// wrapping a coroutine this is the thread's owner state, whose registry is
     /// shared. State-wide operations and `LuaRef` stack pushes use it so they
     /// never disturb a suspended coroutine's stack.
-    LuaState mainState()
+    LuaState mainState() @nogc nothrow
     {
         if (_core is null)
             return LuaState.init;
@@ -484,14 +484,14 @@ struct LuaState
     {
         import lunarbind.conv : pushTo;
         pushTo(this, value);
-        raw.setGlobal(handle, toStringz(name));
+        raw.setGlobalString(handle, name);
     }
 
     T getGlobal(T)(string name)
     {
         import lunarbind.conv : popFrom;
         StackGuard guard = StackGuard(this);
-        raw.getGlobal(handle, toStringz(name));
+        raw.getGlobalString(handle, name);
         return popFrom!T(this, -1);
     }
 
@@ -621,7 +621,7 @@ struct StackGuard
     private lua_State* L;
     private int savedTop;
 
-    this(LuaState state)
+    this(LuaState state) @nogc nothrow
     {
         L = state.handle;
         savedTop = L is null ? 0 : lua_gettop(L);
@@ -645,13 +645,13 @@ private struct RefHolder
     LuaState state;
     int ref_;
 
-    this(LuaState state, int ref_)
+    this(LuaState state, int ref_) @nogc nothrow
     {
         this.state = state;
         this.ref_ = ref_;
     }
 
-    ~this() nothrow
+    ~this() @nogc nothrow
     {
         auto L = state.handle;
         if (L !is null && ref_ != 0 && ref_ != LUA_REFNIL)
@@ -691,7 +691,7 @@ struct LuaRef
         return _holder.ref_ == 0 || _holder.ref_ == LUA_REFNIL;
     }
 
-    LuaState state() { return _holder.state; }
+    LuaState state() @nogc nothrow { return _holder.state; }
     int ref_() const @nogc nothrow { return _holder.ref_; }
 
     void push() @nogc nothrow

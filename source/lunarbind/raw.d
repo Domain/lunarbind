@@ -405,6 +405,27 @@ else
             lua_setglobal(L, name);
     }
 
+    // Allocation-free variants that take a Lua string slice instead of a
+    // NUL-terminated C string.
+    int getGlobalString(lua_State* L, const(char)[] name)
+    {
+        pushGlobalTable(L);
+        lua_pushlstring(L, name.ptr, name.length);
+        lua_gettable(L, -2);
+        remove(L, -2);
+        return lua_type(L, -1);
+    }
+
+    void setGlobalString(lua_State* L, const(char)[] name)
+    {
+        // The value is on top; keep it while building globals[key].
+        pushGlobalTable(L);
+        lua_pushlstring(L, name.ptr, name.length);
+        lua_pushvalue(L, -3);
+        lua_settable(L, -3);
+        pop(L, 2);
+    }
+
     void pushCFunction(lua_State* L, lua_CFunction fn) { lua_pushcclosure(L, fn, 0); }
 
     void pushGlobalTable(lua_State* L)

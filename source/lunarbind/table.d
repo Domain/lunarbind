@@ -73,7 +73,7 @@ struct LuaTable
         lua_setfield(s.handle, -2, "__mode");    // [table, metatable]
     }
 
-    LuaState state() { return _ref.state(); }
+    LuaState state() @nogc nothrow { return _ref.state(); }
     LuaRef ref_() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }
     void pushInto(LuaState target) { _ref.pushInto(target); }
@@ -123,7 +123,7 @@ struct LuaTable
         set(key, value);
     }
 
-    size_t length()
+    size_t length() @nogc nothrow
     {
         StackGuard guard = StackGuard(state());
         push();

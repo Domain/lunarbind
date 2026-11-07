@@ -134,6 +134,28 @@ and step-multiplier setters return the previous value. On Lua 5.5 the same
 operations map to `LUA_GCPARAM`; on earlier versions they map to
 `LUA_GCSETPAUSE` / `LUA_GCSETSTEPMUL`.
 
+## Allocation-free fast paths
+
+Primitive stack, table and state operations are `@nogc`, so they can be used
+from real-time or `@nogc` code:
+
+- `LuaState` stack primitives (`top`, `setTop`, `pop`, `pushValue`,
+  `absIndex`, `checkStack`, `typeOf`, `protectedCall`) and GC controls
+- `LuaState.push` for `bool`, integers, floating-point values, strings,
+  `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars
+- `LuaState.setGlobal` (keys are pushed as length-delimited strings)
+- `LuaTable.set` with primitive keys and values, `LuaTable.push` and
+  `LuaTable.length`
+- `LuaRef.push` / `ref_` / `isNull`, `LuaFunction.push`, `LuaTable.state`
+- `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
+- copying a `LuaState` handle, `mainState` and `sharesState`
+
+Checked conversions (`LuaTable.get`, `LuaState.getGlobal`, `LuaFunction.call`)
+throw typed D exceptions on conversion errors, which requires allocation; they
+are intentionally not `@nogc`. When you need a no-allocation path, validate
+with `typeOf` and read through the stack primitives, or use
+`LuaValue.pushUnchecked` after confirming state ownership yourself.
+
 ## Unified registration with `toLua`
 
 `toLua` is the recommended facade. It detects the symbol kind at compile time,
@@ -143,6 +165,7 @@ default global name, and returns a handle that matches the category:
 | D symbol | Lua value | returned handle |
 |---|---|---|
 | function / overload set | function | `LuaFunction` |
+| raw `lua_CFunction` | function | `LuaFunction` |
 | delegate / function pointer | function | `LuaFunction` |
 | class | class table | `LuaTable` |
 | struct | static-method table | `LuaTable` |
@@ -575,8 +598,9 @@ arguments are handled through raw `lua_CFunction` callbacks (see above).
 ## Roadmap
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
-   seeded randomized stress tests, coverage-guided fuzzing, and `@nogc` fast
-   paths where possible.
+   seeded randomized stress tests, and coverage-guided fuzzing. Primitive
+   stack, table and state paths are already `@nogc`; checked conversions stay
+   allocating because they throw typed errors.
 2. **Tooling** (ongoing): richer documentation generation and editor
    integration.
 3. **API polish**: v0.2 review of names, attributes and error messages.

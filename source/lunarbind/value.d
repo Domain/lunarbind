@@ -97,6 +97,15 @@ struct LuaValue
                 break;
         }
 
+        pushUnchecked(state);
+    }
+
+    /// Push without checking that a referenced value belongs to `state`.
+    ///
+    /// Use this on hot paths after verifying state ownership yourself. It never
+    /// allocates and never throws.
+    void pushUnchecked(LuaState state) @nogc nothrow
+    {
         final switch (kind)
         {
             case LuaType.none:
@@ -122,7 +131,7 @@ struct LuaValue
                 if (ref_.isNull())
                     lua_pushnil(state.handle);
                 else
-                    ref_.pushInto(state);
+                    lua_rawgeti(state.handle, LUA_REGISTRYINDEX, ref_.ref_());
                 break;
             case LuaType.lightUserdata:
                 lua_pushlightuserdata(state.handle, userdataValue);

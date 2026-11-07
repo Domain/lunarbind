@@ -2134,3 +2134,84 @@ unittest
         "---@overload fun(value: integer): integer"));
     assert(rawModuleStub.canFind("function rawfixture.mixed(...) end"));
 }
+
+// Compile-time only: these bodies must stay @nogc so the primitive stack,
+// table and state paths never allocate. They are intentionally not called.
+private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
+                       LuaValue v, int i, double d, bool b, string s,
+                       void* p, Nullable!int n, LuaString ls,
+                       const(char)[] cs) @nogc
+{
+    L.push(i);
+    L.push(d);
+    L.push(b);
+    L.push(s);
+    L.push(p);
+    L.push(n);
+    L.push(ls);
+    L.push(cs);
+    L.pop(8);
+
+    L.top();
+    L.setTop(0);
+    L.pushValue(-1);
+    L.absIndex(-1);
+    L.checkStack(1);
+    L.typeOf(-1);
+    L.protectedCall(0, 0, 0);
+    L.gcCollect();
+    L.gcBytes();
+    L.setGlobal("answer", 42);
+
+    t.set("x", i);
+    t.set(1, s);
+    t.push();
+    t.length();
+
+    f.push();
+    f.ref_();
+
+    r.push();
+    r.ref_();
+    r.isNull();
+
+    v.pushUnchecked(L);
+
+    auto copy = L;
+    auto main = L.mainState();
+    copy.isOpen();
+    copy = main;
+}
+
+unittest
+{
+    // `pushUnchecked` is the allocation-free push path; `push` adds the
+    // cross-state ownership check.
+    auto L = LuaState.open();
+    auto t = LuaTable.create(L);
+    t.set("answer", 42);
+
+    auto intValue = t.get!LuaValue("answer");
+    intValue.pushUnchecked(L);
+    assert(L.get!int(-1) == 42);
+    L.pop();
+
+    auto tableValue = LuaValue(LuaType.table, t.ref_());
+    tableValue.pushUnchecked(L);
+    assert(L.typeOf(-1) == LuaType.table);
+    L.pop();
+
+    auto stringValue = LuaValue.fromString("hi");
+    stringValue.pushUnchecked(L);
+    assert(L.get!string(-1) == "hi");
+    L.pop();
+
+    // The checked variant still rejects values from another state.
+    auto other = LuaState.open();
+    bool threw;
+    try
+        tableValue.push(other);
+    catch (LuaStateException)
+        threw = true;
+    assert(threw);
+}

@@ -3,6 +3,7 @@
 /// Public API:
 ///   - `LuaState` shared state handle, selective `LuaLib` loading, GC controls
 ///     and stack primitives
+///   - `@nogc` primitive push/stack/table paths and `LuaValue.pushUnchecked`
 ///   - `LuaTable` / `LuaFunction` typed handles
 ///   - `LuaThread` coroutine create/resume/status handle
 ///   - `LuaValue` dynamic value

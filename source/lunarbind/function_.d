@@ -29,7 +29,7 @@ struct LuaFunction
         _ref = ref_;
     }
 
-    LuaState state() { return _ref.state(); }
+    LuaState state() @nogc nothrow { return _ref.state(); }
     LuaRef ref_() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }
     void pushInto(LuaState target) { _ref.pushInto(target); }
