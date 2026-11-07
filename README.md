@@ -197,6 +197,30 @@ injection rules as `registerFunction`. `registerModule!(some.module)(L, "name")`
 binds every public function in a D module as one Lua table, including
 overloads.
 
+D `...` declarations cannot be marshalled automatically because Lua values
+carry no C type information. For arbitrary or C-style variadic arguments, bind
+a raw `lua_CFunction` instead; it receives the Lua stack directly and returns
+the number of Lua results:
+
+```d
+extern(C) int sumAll(lua_State* L) nothrow
+{
+    lua_Integer total;
+    foreach (i; 1 .. lua_gettop(L) + 1)
+        total += luaL_checkinteger(L, i);
+    lua_pushinteger(L, total);
+    return 1;
+}
+
+toLua!sumAll(L);                 // global `sumAll`
+L.doString("assert(sumAll(1, 2, 3) == 6)");
+```
+
+Raw callbacks also work with `registerFunction`, `registerLibrary`,
+`registerModule`, `LuaModule.addFunction` and runtime function pointers. They
+are not bound as class or struct members; generated stubs declare them with a
+Lua vararg (`function sumAll(...) end`).
+
 For programmatic composition across modules, `LuaModule` builds a table without
 creating globals:
 
@@ -539,12 +563,14 @@ tables (`LuaWeakness`); coroutine creation and resumption through `LuaThread`;
 repeated pushes reuse the same userdata; reference-counted GC roots across
 states and class views; selective standard-library loading through `LuaLib` /
 `openLibraries` and GC controls (`gcCollect`, `gcBytes`, `gcStep`, `gcStop`,
-`gcRestart`, `gcIsRunning`, `gcSetPause`, `gcSetStepMul`). Custom per-state
-codecs (`registerCodec!T`) override the default class/struct representation and
-participate in overload selection through their `check` predicate.
+`gcRestart`, `gcIsRunning`, `gcSetPause`, `gcSetStepMul`); raw
+`lua_CFunction` callbacks for arbitrary/C-style variadic arguments. Custom
+per-state codecs (`registerCodec!T`) override the default class/struct
+representation and participate in overload selection through their `check`
+predicate.
 
-Not yet: C-style/D-style variadics. These are deliberately listed on the roadmap
-rather than half-implemented.
+Not yet: automatic marshalling of D `...` declarations. C-style variadic
+arguments are handled through raw `lua_CFunction` callbacks (see above).
 
 ## Roadmap
 
@@ -553,7 +579,7 @@ rather than half-implemented.
    paths where possible.
 2. **Tooling** (ongoing): richer documentation generation and editor
    integration.
-3. **Language coverage**: C-style/D-style variadics.
+3. **API polish**: v0.2 review of names, attributes and error messages.
 
 ## License
 

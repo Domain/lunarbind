@@ -18,7 +18,8 @@
 ///   - `@LuaExport` naming, member filtering and stub descriptions
 ///   - `luaStubs` / `LuaStubBuilder` EmmyLua declaration generation with
 ///     custom-codec type overrides
-///   - `registerFunction` / `registerLibrary` callback registration
+///   - `registerFunction` / `registerLibrary` callback registration, including
+///     raw `lua_CFunction` callbacks for arbitrary/C-style variadic arguments
 module lunarbind;
 
 public import lunarbind.types;

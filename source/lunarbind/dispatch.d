@@ -6,9 +6,10 @@ module lunarbind.dispatch;
 
 import lunarbind.state;
 import lunarbind.conv;
+import lunarbind.raw : lua_State;
 
-import std.traits : Parameters, ParameterDefaults, variadicFunctionStyle,
-                    Variadic, Unqual, isInstanceOf;
+import std.traits : Parameters, ParameterDefaults, ReturnType,
+                    variadicFunctionStyle, Variadic, Unqual, isInstanceOf;
 import std.typecons : Tuple;
 
 /// Number of parameters matched one-to-one with Lua arguments. A typesafe
@@ -75,11 +76,40 @@ package template requiredParamCount(alias F, size_t i = 0, size_t required = 0)
 /// True when the function's variadic style can be marshalled from Lua.
 package template bindableVariadic(alias F)
 {
-    static if (__traits(compiles, variadicFunctionStyle!F))
+    static if (isRawLuaFunction!F)
+        enum bindableVariadic = true;
+    else static if (__traits(compiles, variadicFunctionStyle!F))
         enum bindableVariadic = variadicFunctionStyle!F == Variadic.no
                              || variadicFunctionStyle!F == Variadic.typesafe;
     else
         enum bindableVariadic = false;
+}
+
+/// True when `T` is a raw Lua C callback type: `int(lua_State*)`.
+///
+/// Such callbacks receive the Lua stack directly, so they can accept any
+/// number of Lua arguments (the C-style variadic escape hatch). Both function
+/// types (`typeof(someFunction)`) and function pointer types match.
+package template isRawLuaFunctionType(T)
+{
+    static if (!is(T == delegate)
+               && __traits(compiles, Parameters!T)
+               && __traits(compiles, ReturnType!T))
+        enum isRawLuaFunctionType =
+            Parameters!T.length == 1
+            && is(Unqual!(Parameters!T[0]) == lua_State*)
+            && is(ReturnType!T == int);
+    else
+        enum isRawLuaFunctionType = false;
+}
+
+/// True when `F` names a raw Lua C callback.
+package template isRawLuaFunction(alias F)
+{
+    static if (__traits(compiles, typeof(F)))
+        enum isRawLuaFunction = isRawLuaFunctionType!(typeof(F));
+    else
+        enum isRawLuaFunction = false;
 }
 
 /// Element type of a D typesafe variadic parameter.

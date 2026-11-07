@@ -217,6 +217,19 @@ extern(C) int luaCFunctionWrapper(alias Func)(lua_State* L) nothrow
     }
 }
 
+/// Wrap a raw Lua C callback so D-linkage callbacks and exceptions are safe.
+private extern(C) int luaRawFunctionWrapper(alias Func)(lua_State* L) nothrow
+{
+    try
+    {
+        return Func(L);
+    }
+    catch (Throwable e)
+    {
+        return pushError(L, e);
+    }
+}
+
 // -- runtime delegates ------------------------------------------------------
 
 private final class CallbackBox(Dg)
@@ -261,19 +274,46 @@ private extern(C) int luaDelegateWrapper(Dg)(lua_State* L) nothrow
     }
 }
 
+private extern(C) int luaRawDelegateWrapper(Dg)(lua_State* L) nothrow
+{
+    try
+    {
+        auto ud = lua_touserdata(L, raw.upvalueIndex(1));
+        auto fp = *cast(Dg*) ud;
+        return fp(L);
+    }
+    catch (Throwable e)
+    {
+        return pushError(L, e);
+    }
+}
+
 /// Push a runtime D delegate as a Lua function.
 void pushDelegate(Dg)(LuaState state, Dg dg)
 {
-    static assert(bindableVariadic!Dg,
-                  "lunarbind: only D typesafe variadics can be bound");
-    auto box = new CallbackBox!Dg(dg);
-    GC.addRoot(cast(void*) box);
+    static if (isRawLuaFunctionType!Dg)
+    {
+        // A raw Lua callback reads the Lua stack directly. Store the pointer in
+        // an upvalue so the call goes through D linkage and exceptions are
+        // converted; function pointers need no GC root.
+        auto ud = cast(Dg*) raw.newUserdata(state.handle, Dg.sizeof);
+        *ud = dg;
+        lua_pushcclosure(state.handle, &luaRawDelegateWrapper!Dg, 1);
+    }
+    else
+    {
+        static assert(bindableVariadic!Dg,
+                      "lunarbind: only D typesafe variadics can be bound; " ~
+                      "use a raw lua_CFunction for C-style variadics");
+        auto box = new CallbackBox!Dg(dg);
+        GC.addRoot(cast(void*) box);
 
-    auto ud = cast(void**) raw.newUserdata(state.handle, (void*).sizeof);
-    *ud = cast(void*) box;
-    ensureCallbackMetatable(state);
-    lua_setmetatable(state.handle, -2);
-    lua_pushcclosure(state.handle, &luaDelegateWrapper!Dg, 1);
+        auto ud = cast(void**) raw.newUserdata(state.handle, (void*).sizeof);
+        *ud = cast(void*) box;
+        ensureCallbackMetatable(state);
+        lua_setmetatable(state.handle, -2);
+        lua_pushcclosure(state.handle, &luaDelegateWrapper!Dg, 1);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +323,17 @@ void pushDelegate(Dg)(LuaState state, Dg dg)
 /// Push a compile-time D function as a Lua function.
 void pushFunction(alias Func)(LuaState state)
 {
-    static assert(bindableVariadic!Func,
-                  "lunarbind: only D typesafe variadics can be bound");
-    pushCFunction(state.handle, &luaCFunctionWrapper!Func);
+    static if (isRawLuaFunction!Func)
+    {
+        pushCFunction(state.handle, &luaRawFunctionWrapper!Func);
+    }
+    else
+    {
+        static assert(bindableVariadic!Func,
+                      "lunarbind: only D typesafe variadics can be bound; " ~
+                      "use a raw lua_CFunction for C-style variadics");
+        pushCFunction(state.handle, &luaCFunctionWrapper!Func);
+    }
 }
 
 /// Register a compile-time D function as a global.

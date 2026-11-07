@@ -6,6 +6,7 @@
 /// | D symbol                 | Lua value            | returned handle |
 /// |--------------------------|----------------------|-----------------|
 /// | function / overload set  | function             | `LuaFunction`   |
+/// | raw `lua_CFunction`      | function             | `LuaFunction`   |
 /// | delegate / function ptr  | function             | `LuaFunction`   |
 /// | class                    | class table          | `LuaTable`      |
 /// | struct                   | static-method table  | `LuaTable`      |

@@ -9,9 +9,10 @@ import lunarbind.raw;
 static import raw = lunarbind.raw;
 import lunarbind.state;
 import lunarbind.conv : pushTo;
-import lunarbind.dispatch : fillCallArgs, pushCallResult;
+import lunarbind.dispatch : fillCallArgs, isRawLuaFunction, pushCallResult;
 import lunarbind.function_ : pushDelegate, pushFunction;
-import lunarbind.object : LuaClass, LuaStruct, callMatches, overloadBindable;
+import lunarbind.object : LuaClass, LuaStruct, callMatches, callableBindable,
+                          overloadBindable;
 import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf,
                          luaTypeName;
 import lunarbind.table : LuaTable;
@@ -38,7 +39,7 @@ private template anyModuleOverloadBindable(alias Module, string member, size_t i
 {
     static if (i < __traits(getOverloads, Module, member).length)
         enum anyModuleOverloadBindable =
-            overloadBindable!(__traits(getOverloads, Module, member)[i])
+            callableBindable!(__traits(getOverloads, Module, member)[i])
             || anyModuleOverloadBindable!(Module, member, i + 1);
     else
         enum anyModuleOverloadBindable = false;
@@ -53,7 +54,7 @@ package extern(C) int functionSetThunk(alias Parent, string member)(lua_State* L
 
         static foreach (i, F; __traits(getOverloads, Parent, member))
         {{
-            static if (overloadBindable!F)
+            static if (overloadBindable!F && !isRawLuaFunction!F)
             {
                 if (callMatches!F(state, 1, nargs))
                 {
@@ -71,6 +72,14 @@ package extern(C) int functionSetThunk(alias Parent, string member)(lua_State* L
                     }
                 }
             }
+        }}
+
+        // Raw Lua callbacks consume the stack themselves and have no fixed
+        // arity, so they are the last resort after typed overloads.
+        static foreach (i, F; __traits(getOverloads, Parent, member))
+        {{
+            static if (callableBindable!F && isRawLuaFunction!F)
+                return F(L);
         }}
 
         auto msg = "no matching overload for " ~ luaMemberName!(Parent, member);

@@ -22,7 +22,10 @@
 ///   variadics collect the argument tail into an array; a `std.typecons.Tuple`
 ///   result expands into multiple Lua return values; a `LuaState` parameter is
 ///   injected by the wrapper and consumes no Lua argument.
-/// - C-style and D-style variadics remain unsupported.
+/// - D `...` declarations cannot be marshalled automatically because Lua
+///   values carry no C type information. Free functions with the raw
+///   `extern(C) int f(lua_State*)` signature are bound directly and can read
+///   any number of arguments from the Lua stack.
 module lunarbind.object;
 
 import lunarbind.raw;
@@ -116,6 +119,17 @@ package template overloadBindable(alias Method)
             && bindableVariadic!Method;
     else
         enum overloadBindable = false;
+}
+
+/// Like `overloadBindable`, but also accepts raw `lua_CFunction` callbacks.
+/// Free functions and module tables can expose them; class and struct members
+/// cannot, because their arguments are handled by the normal method wrapper.
+package template callableBindable(alias F)
+{
+    static if (isRawLuaFunction!F)
+        enum callableBindable = isPublicOverload!F;
+    else
+        enum callableBindable = overloadBindable!F;
 }
 
 package template methodBindable(T, string member, size_t i = 0)

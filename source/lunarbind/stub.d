@@ -21,15 +21,15 @@ import lunarbind.bind : isModuleSymbol, isTypeSymbol, overloadSetLength;
 import lunarbind.conv : LuaCodec, LuaString;
 import lunarbind.coroutine : LuaThread;
 import lunarbind.dispatch : fixedParamCount, isInjectedParameter,
-                            typesafeVariadicElement;
+                            isRawLuaFunction, typesafeVariadicElement;
 import lunarbind.export_ : isLuaExportedMember, luaDescriptionOf,
                            luaMemberDescription, luaMemberName, luaNameOf,
                            luaTypeDescription, luaTypeName;
 import lunarbind.function_ : LuaFunction;
-import lunarbind.object : LuaClass, LuaStruct, fieldBindable, hasPropertyGetter,
-                         hasPropertySetter, isPublicMember, methodBindable,
-                         overloadBindable, propertyGetter, propertySetter,
-                         staticMethodBindable;
+import lunarbind.object : LuaClass, LuaStruct, callableBindable, fieldBindable,
+                         hasPropertyGetter, hasPropertySetter, isPublicMember,
+                         methodBindable, overloadBindable, propertyGetter,
+                         propertySetter, staticMethodBindable;
 import lunarbind.state : LuaRef, LuaState;
 import lunarbind.table : LuaTable;
 import lunarbind.value : LuaValue;
@@ -189,9 +189,17 @@ private template isInstanceProperty(T, string member)
         enum isInstanceProperty = false;
 }
 
+private template overloadAllowed(bool allowRaw, alias F)
+{
+    static if (allowRaw)
+        enum overloadAllowed = callableBindable!F;
+    else
+        enum overloadAllowed = overloadBindable!F;
+}
+
 private template countBindableOverloads(alias Parent, string member,
                                         bool staticOnly, bool instanceOnly,
-                                        size_t i = 0)
+                                        size_t i = 0, bool allowRaw = false)
 {
     static if (__traits(compiles, __traits(getOverloads, Parent, member)))
     {
@@ -199,13 +207,13 @@ private template countBindableOverloads(alias Parent, string member,
         static if (i < overloads.length)
         {
             alias F = overloads[i];
-            enum ok = overloadBindable!F
+            enum ok = overloadAllowed!(allowRaw, F)
                 && (!staticOnly || isStaticOverload!F)
                 && (!instanceOnly || !isStaticOverload!F);
             enum countBindableOverloads =
                 (ok ? 1 : 0)
                 + countBindableOverloads!(Parent, member, staticOnly,
-                                          instanceOnly, i + 1);
+                                          instanceOnly, i + 1, allowRaw);
         }
         else
             enum countBindableOverloads = 0;
@@ -250,7 +258,7 @@ private template anyBindableOverload(alias Parent, string member, size_t i = 0)
 {
     static if (i < __traits(getOverloads, Parent, member).length)
         enum anyBindableOverload =
-            overloadBindable!(__traits(getOverloads, Parent, member)[i])
+            callableBindable!(__traits(getOverloads, Parent, member)[i])
             || anyBindableOverload!(Parent, member, i + 1);
     else
         enum anyBindableOverload = false;
@@ -363,42 +371,56 @@ struct LuaStubBuilder
 
     private string overloadParams(alias Func)(string selfType = null)
     {
-        string[] parts;
-        if (selfType.length)
-            parts ~= "self: " ~ selfType;
+        static if (isRawLuaFunction!Func)
+        {
+            return selfType.length ? selfType ~ ", ..." : "...";
+        }
+        else
+        {
+            string[] parts;
+            if (selfType.length)
+                parts ~= "self: " ~ selfType;
 
-        static foreach (i, P; Parameters!Func)
-        {{
-            static if (!isInjectedParameter!P)
-            {
-                static if (isVariadicTail!(Func, i))
-                    parts ~= "...: " ~ typeText!(typesafeVariadicElement!Func)();
-                else
-                    parts ~= paramName!(Func, i)
-                        ~ (paramOptional!(Func, i) ? "?: " : ": ")
-                        ~ typeText!P();
-            }
-        }}
-        return parts.join(", ");
+            static foreach (i, P; Parameters!Func)
+            {{
+                static if (!isInjectedParameter!P)
+                {
+                    static if (isVariadicTail!(Func, i))
+                        parts ~= "...: " ~ typeText!(typesafeVariadicElement!Func)();
+                    else
+                        parts ~= paramName!(Func, i)
+                            ~ (paramOptional!(Func, i) ? "?: " : ": ")
+                            ~ typeText!P();
+                }
+            }}
+            return parts.join(", ");
+        }
     }
 
     private string signatureParams(alias Func)(string selfName = null)
     {
-        string[] parts;
-        if (selfName.length)
-            parts ~= selfName;
+        static if (isRawLuaFunction!Func)
+        {
+            return selfName.length ? selfName ~ ", ..." : "...";
+        }
+        else
+        {
+            string[] parts;
+            if (selfName.length)
+                parts ~= selfName;
 
-        static foreach (i, P; Parameters!Func)
-        {{
-            static if (!isInjectedParameter!P)
-            {
-                static if (isVariadicTail!(Func, i))
-                    parts ~= "...";
-                else
-                    parts ~= paramName!(Func, i);
-            }
-        }}
-        return parts.join(", ");
+            static foreach (i, P; Parameters!Func)
+            {{
+                static if (!isInjectedParameter!P)
+                {
+                    static if (isVariadicTail!(Func, i))
+                        parts ~= "...";
+                    else
+                        parts ~= paramName!(Func, i);
+                }
+            }}
+            return parts.join(", ");
+        }
     }
 
     private string returnTypeText(R)()
@@ -418,33 +440,42 @@ struct LuaStubBuilder
 
     private void putParamAnnotations(alias Func)(string selfType = null)
     {
-        if (selfType.length)
-            putLine("---@param self " ~ selfType);
-
-        static foreach (i, P; Parameters!Func)
-        {{
-            static if (!isInjectedParameter!P)
-            {
-                static if (isVariadicTail!(Func, i))
-                    putLine("---@vararg "
-                            ~ typeText!(typesafeVariadicElement!Func)());
-                else
-                    putLine("---@param " ~ paramName!(Func, i)
-                            ~ (paramOptional!(Func, i) ? "? " : " ")
-                            ~ typeText!P());
-            }
-        }}
-
-        alias R = ReturnType!Func;
-        static if (!is(R == void))
+        static if (isRawLuaFunction!Func)
         {
-            static if (isInstanceOf!(Tuple, Unqual!R))
+            if (selfType.length)
+                putLine("---@param self " ~ selfType);
+            putLine("---@vararg any");
+        }
+        else
+        {
+            if (selfType.length)
+                putLine("---@param self " ~ selfType);
+
+            static foreach (i, P; Parameters!Func)
+            {{
+                static if (!isInjectedParameter!P)
+                {
+                    static if (isVariadicTail!(Func, i))
+                        putLine("---@vararg "
+                                ~ typeText!(typesafeVariadicElement!Func)());
+                    else
+                        putLine("---@param " ~ paramName!(Func, i)
+                                ~ (paramOptional!(Func, i) ? "? " : " ")
+                                ~ typeText!P());
+                }
+            }}
+
+            alias R = ReturnType!Func;
+            static if (!is(R == void))
             {
-                static foreach (T; FieldTypeTuple!(Unqual!R))
-                    putLine("---@return " ~ typeText!T());
+                static if (isInstanceOf!(Tuple, Unqual!R))
+                {
+                    static foreach (T; FieldTypeTuple!(Unqual!R))
+                        putLine("---@return " ~ typeText!T());
+                }
+                else
+                    putLine("---@return " ~ typeText!R());
             }
-            else
-                putLine("---@return " ~ typeText!R());
         }
     }
 
@@ -479,13 +510,14 @@ struct LuaStubBuilder
 
     private void putFunctionSet(alias Parent, string member,
                                 bool staticOnly = false,
-                                bool instanceOnly = false)(string table,
-                                                           string name,
-                                                           string selfType = null,
-                                                           string description = null)
+                                bool instanceOnly = false,
+                                bool allowRaw = false)(string table,
+                                                       string name,
+                                                       string selfType = null,
+                                                       string description = null)
     {
         enum count = countBindableOverloads!(Parent, member, staticOnly,
-                                             instanceOnly);
+                                             instanceOnly, 0, allowRaw);
         static if (count == 0)
         {
             // Nothing bindable; emit no declaration.
@@ -497,7 +529,7 @@ struct LuaStubBuilder
             {
                 static foreach (F; __traits(getOverloads, Parent, member))
                 {{
-                    static if (overloadBindable!F
+                    static if (overloadAllowed!(allowRaw, F)
                                && (!staticOnly || isStaticOverload!F)
                                && (!instanceOnly || !isStaticOverload!F))
                         putSingleFunction!F(table, name, selfType);
@@ -507,7 +539,8 @@ struct LuaStubBuilder
             {
                 static foreach (F; __traits(getOverloads, Parent, member))
                 {{
-                    static if (overloadBindable!F
+                    static if (overloadAllowed!(allowRaw, F)
+                               && !isRawLuaFunction!F
                                && (!staticOnly || isStaticOverload!F)
                                && (!instanceOnly || !isStaticOverload!F))
                     {
@@ -764,15 +797,17 @@ struct LuaStubBuilder
             static foreach (F; __traits(getOverloads, __traits(parent, Symbol),
                                         __traits(identifier, Symbol)))
             {{
-                static if (overloadBindable!F)
+                static if (callableBindable!F && !isRawLuaFunction!F)
                     addReferencedFromFunction!F();
             }}
             putFunctionSet!(__traits(parent, Symbol),
-                            __traits(identifier, Symbol))("", name);
+                            __traits(identifier, Symbol),
+                            false, false, true)("", name);
         }
         else
         {
-            static if (__traits(compiles, Parameters!Symbol)
+            static if (!isRawLuaFunction!Symbol
+                       && __traits(compiles, Parameters!Symbol)
                        && __traits(compiles, ReturnType!Symbol))
                 addReferencedFromFunction!Symbol();
             putSingleFunction!Symbol("", name);
@@ -893,7 +928,7 @@ struct LuaStubBuilder
                        && moduleMemberBindable!(Module, member))
                 static foreach (F; __traits(getOverloads, Module, member))
                 {{
-                    static if (overloadBindable!F)
+                    static if (callableBindable!F && !isRawLuaFunction!F)
                         addReferencedFromFunction!F();
                 }}
         }}
@@ -907,7 +942,7 @@ struct LuaStubBuilder
         {{
             static if (moduleMemberPublic!(Module, member)
                        && moduleMemberBindable!(Module, member))
-                putFunctionSet!(Module, member)(
+                putFunctionSet!(Module, member, false, false, true)(
                     name, luaMemberName!(Module, member), null,
                     luaMemberDescription!(Module, member));
         }}

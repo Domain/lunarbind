@@ -4,6 +4,7 @@ module lunarbind.tests;
 
 import lunarbind;
 import lunarbind.exportfixture;
+import lunarbind.rawfixture;
 
 import std.algorithm.searching : canFind, startsWith;
 import std.conv : to;
@@ -2079,4 +2080,57 @@ unittest
     minimal.gcSetStepMul(150);
     minimal.gcStep(1);
     assert(minimal.gcBytes() > 0);
+}
+
+unittest
+{
+    // Raw lua_CFunction callbacks read the Lua stack directly, which is the
+    // escape hatch for C-style variadic arguments.
+    auto L = LuaState.open();
+
+    auto rawSumFn = toLua!(lunarbind.rawfixture.rawSum)(L, "raw_sum");
+    assert(rawSumFn.call!int(1, 2, 3) == 6);
+    assert(L.getGlobal!LuaFunction("raw_sum").call!int() == 0);
+
+    // registerFunction and registerLibrary accept raw callbacks too.
+    registerFunction!(lunarbind.rawfixture.rawArgumentCount)(L, "raw_count");
+    assert(L.getGlobal!LuaFunction("raw_count").call!int("a", "b") == 2);
+    registerLibrary!("count", lunarbind.rawfixture.rawArgumentCount)(L, "rawlib");
+    assert(L.getGlobal!LuaTable("rawlib")
+            .get!LuaFunction("count").call!int(1, 2, 3, 4) == 4);
+
+    // Runtime function pointers take the raw path as well.
+    registerDelegate(L, "raw_ptr", &lunarbind.rawfixture.rawSum);
+    assert(L.getGlobal!LuaFunction("raw_ptr").call!int(7, 8) == 15);
+
+    // Module binding and LuaModule composition include raw callbacks.
+    auto rawModule = registerModule!(lunarbind.rawfixture)(L, "raw_module");
+    assert(rawModule.get!LuaFunction("rawSum").call!int(5, 6) == 11);
+
+    // Typed overloads are preferred; the raw callback handles the rest.
+    auto rawMixed = rawModule.get!LuaFunction("mixed");
+    assert(rawMixed.call!int(4) == 8);
+    assert(rawMixed.call!int("x") == -1);
+
+    LuaModule.create(L)
+        .addFunction!(lunarbind.rawfixture.rawSum)("sum")
+        .addFunction!(lunarbind.rawfixture.rawArgumentCount)("count")
+        .setGlobal("raw_tools");
+    L.doString("
+        assert(raw_tools.sum(1, 2, 3) == 6)
+        assert(raw_tools.count('a', 'b') == 2)
+    ");
+
+    // Raw callbacks appear in stubs as Lua varargs.
+    auto rawStub = luaStubs!(lunarbind.rawfixture.rawSum)();
+    assert(rawStub.canFind("---@vararg any"));
+    assert(rawStub.canFind("function rawSum(...) end"));
+    auto rawModuleStub = luaStubs!(lunarbind.rawfixture)();
+    assert(rawModuleStub.canFind("function rawfixture.rawSum(...) end"));
+    assert(rawModuleStub.canFind(
+        "function rawfixture.rawArgumentCount(...) end"));
+    // A mixed set keeps the typed overload signature and the raw fallback.
+    assert(rawModuleStub.canFind(
+        "---@overload fun(value: integer): integer"));
+    assert(rawModuleStub.canFind("function rawfixture.mixed(...) end"));
 }
