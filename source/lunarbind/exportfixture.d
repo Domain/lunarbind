@@ -2,12 +2,12 @@
 ///
 /// This module is only imported from the unittest build, so it is not part of
 /// the normal library.
-@LuaExport("renamedFixture")
+@LuaExport("renamedFixture", "Fixture bindings.")
 module lunarbind.exportfixture;
 
 import lunarbind.export_ : LuaExport;
 
-@LuaExport("fixtureAdd")
+@LuaExport("fixtureAdd", "Adds two integers.")
 int fixtureSum(int a, int b)
 {
     return a + b;
@@ -19,7 +19,7 @@ int fixtureHidden()
     return 7;
 }
 
-@LuaExport("fixtureChoice")
+@LuaExport("fixtureChoice", "Returns the argument kind.")
 string fixturePick(int value)
 {
     return "int";

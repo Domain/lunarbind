@@ -12,8 +12,11 @@
 ///   - `LuaStruct!S` D-struct <-> mutable Lua userdata box binding
 ///   - `toLua` unified registration for functions, classes, struct type tables,
 ///     modules, enums and values
-///   - `@LuaExport` naming and member filtering for automatic tables
-///   - `luaStubs` / `LuaStubBuilder` EmmyLua declaration generation
+///   - `LuaModule` incremental table builder and non-global `moduleTable` /
+///     `enumTable` / `createTable` helpers
+///   - `@LuaExport` naming, member filtering and stub descriptions
+///   - `luaStubs` / `LuaStubBuilder` EmmyLua declaration generation with
+///     custom-codec type overrides
 ///   - `registerFunction` / `registerLibrary` callback registration
 module lunarbind;
 

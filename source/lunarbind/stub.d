@@ -22,8 +22,9 @@ import lunarbind.conv : LuaCodec, LuaString;
 import lunarbind.coroutine : LuaThread;
 import lunarbind.dispatch : fixedParamCount, isInjectedParameter,
                             typesafeVariadicElement;
-import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf,
-                           luaTypeName;
+import lunarbind.export_ : isLuaExportedMember, luaDescriptionOf,
+                           luaMemberDescription, luaMemberName, luaNameOf,
+                           luaTypeDescription, luaTypeName;
 import lunarbind.function_ : LuaFunction;
 import lunarbind.object : LuaClass, LuaStruct, fieldBindable, hasPropertyGetter,
                          hasPropertySetter, isPublicMember, methodBindable,
@@ -275,6 +276,68 @@ struct LuaStubBuilder
 {
     private Appender!(char[]) _output;
     private string[] _declared;
+    private string[TypeInfo] _typeOverrides;
+
+    /// Override the EmmyLua type used for `T` in this builder.
+    ///
+    /// Use this when `T` has a custom `registerCodec` representation (for
+    /// example a struct encoded as a plain `table` or `string`). Overrides also
+    /// suppress automatic declaration of the type and are applied recursively
+    /// to arrays, associative arrays and `Nullable`.
+    void setType(T)(string luaType)
+    {
+        _typeOverrides[typeid(Unqual!T)] = luaType;
+    }
+
+    /// Set a type override from runtime type information.
+    void setTypeOverride(TypeInfo info, string luaType)
+    {
+        _typeOverrides[info] = luaType;
+    }
+
+    /// Remove a previously set type override.
+    void clearType(T)()
+    {
+        _typeOverrides.remove(typeid(Unqual!T));
+    }
+
+    private bool hasTypeOverride(T)()
+    {
+        static if (__traits(compiles, typeid(Unqual!T)))
+            return (typeid(Unqual!T) in _typeOverrides) !is null;
+        else
+            return false;
+    }
+
+    private string typeText(T)()
+    {
+        alias U = Unqual!T;
+        static if (isSomeString!U)
+            return "string";
+        else static if (isInstanceOf!(Nullable, U))
+            return typeText!(typeof(U.init.get))() ~ "|nil";
+        else static if (isDynamicArray!U)
+            return typeText!(typeof(U.init[0]))() ~ "[]";
+        else static if (isAssociativeArray!U)
+            return "table<" ~ typeText!(typeof(U.init.keys[0]))() ~ ", "
+                ~ typeText!(typeof(U.init.values[0]))() ~ ">";
+        else
+        {
+            static if (__traits(compiles, typeid(U)))
+            {
+                auto found = typeid(U) in _typeOverrides;
+                if (found !is null)
+                    return *found;
+            }
+            return luaStubType!T();
+        }
+    }
+
+    private void putDescription(string description)
+    {
+        if (description.length)
+            putLine("--- " ~ description);
+    }
 
     private void putLine(string line)
     {
@@ -309,11 +372,11 @@ struct LuaStubBuilder
             static if (!isInjectedParameter!P)
             {
                 static if (isVariadicTail!(Func, i))
-                    parts ~= "...: " ~ luaStubType!(typesafeVariadicElement!Func);
+                    parts ~= "...: " ~ typeText!(typesafeVariadicElement!Func)();
                 else
                     parts ~= paramName!(Func, i)
                         ~ (paramOptional!(Func, i) ? "?: " : ": ")
-                        ~ luaStubType!P;
+                        ~ typeText!P();
             }
         }}
         return parts.join(", ");
@@ -346,11 +409,11 @@ struct LuaStubBuilder
         {
             string[] types;
             static foreach (T; FieldTypeTuple!(Unqual!R))
-                types ~= luaStubType!T;
+                types ~= typeText!T();
             return types.join(", ");
         }
         else
-            return luaStubType!R;
+            return typeText!R();
     }
 
     private void putParamAnnotations(alias Func)(string selfType = null)
@@ -364,11 +427,11 @@ struct LuaStubBuilder
             {
                 static if (isVariadicTail!(Func, i))
                     putLine("---@vararg "
-                            ~ luaStubType!(typesafeVariadicElement!Func));
+                            ~ typeText!(typesafeVariadicElement!Func)());
                 else
                     putLine("---@param " ~ paramName!(Func, i)
                             ~ (paramOptional!(Func, i) ? "? " : " ")
-                            ~ luaStubType!P);
+                            ~ typeText!P());
             }
         }}
 
@@ -378,10 +441,10 @@ struct LuaStubBuilder
             static if (isInstanceOf!(Tuple, Unqual!R))
             {
                 static foreach (T; FieldTypeTuple!(Unqual!R))
-                    putLine("---@return " ~ luaStubType!T);
+                    putLine("---@return " ~ typeText!T());
             }
             else
-                putLine("---@return " ~ luaStubType!R);
+                putLine("---@return " ~ typeText!R());
         }
     }
 
@@ -393,11 +456,11 @@ struct LuaStubBuilder
             {
                 static if (isVariadicTail!(Ctor, i))
                     putLine("---@vararg "
-                            ~ luaStubType!(typesafeVariadicElement!Ctor));
+                            ~ typeText!(typesafeVariadicElement!Ctor)());
                 else
                     putLine("---@param " ~ paramName!(Ctor, i)
                             ~ (paramOptional!(Ctor, i) ? "? " : " ")
-                            ~ luaStubType!P);
+                            ~ typeText!P());
             }
         }}
         putLine("---@return " ~ className);
@@ -418,7 +481,8 @@ struct LuaStubBuilder
                                 bool staticOnly = false,
                                 bool instanceOnly = false)(string table,
                                                            string name,
-                                                           string selfType = null)
+                                                           string selfType = null,
+                                                           string description = null)
     {
         enum count = countBindableOverloads!(Parent, member, staticOnly,
                                              instanceOnly);
@@ -426,35 +490,39 @@ struct LuaStubBuilder
         {
             // Nothing bindable; emit no declaration.
         }
-        else static if (count == 1)
-        {
-            static foreach (F; __traits(getOverloads, Parent, member))
-            {{
-                static if (overloadBindable!F
-                           && (!staticOnly || isStaticOverload!F)
-                           && (!instanceOnly || !isStaticOverload!F))
-                    putSingleFunction!F(table, name, selfType);
-            }}
-        }
         else
         {
-            static foreach (F; __traits(getOverloads, Parent, member))
-            {{
-                static if (overloadBindable!F
-                           && (!staticOnly || isStaticOverload!F)
-                           && (!instanceOnly || !isStaticOverload!F))
-                {
-                    auto ret = returnTypeText!(ReturnType!F)();
-                    putLine("---@overload fun("
-                            ~ overloadParams!F(selfType) ~ ")"
-                            ~ (ret.length ? ": " ~ ret : ""));
-                }
-            }}
+            putDescription(description);
+            static if (count == 1)
+            {
+                static foreach (F; __traits(getOverloads, Parent, member))
+                {{
+                    static if (overloadBindable!F
+                               && (!staticOnly || isStaticOverload!F)
+                               && (!instanceOnly || !isStaticOverload!F))
+                        putSingleFunction!F(table, name, selfType);
+                }}
+            }
+            else
+            {
+                static foreach (F; __traits(getOverloads, Parent, member))
+                {{
+                    static if (overloadBindable!F
+                               && (!staticOnly || isStaticOverload!F)
+                               && (!instanceOnly || !isStaticOverload!F))
+                    {
+                        auto ret = returnTypeText!(ReturnType!F)();
+                        putLine("---@overload fun("
+                                ~ overloadParams!F(selfType) ~ ")"
+                                ~ (ret.length ? ": " ~ ret : ""));
+                    }
+                }}
 
-            auto prefix = table.length ? table ~ "." : "";
-            auto self = selfType.length ? "self, " : "";
-            putLine("function " ~ prefix ~ name ~ "(" ~ self ~ "...) end");
-            putBlank();
+                auto prefix = table.length ? table ~ "." : "";
+                auto self = selfType.length ? "self, " : "";
+                putLine("function " ~ prefix ~ name ~ "(" ~ self ~ "...) end");
+                putBlank();
+            }
         }
     }
 
@@ -513,14 +581,17 @@ struct LuaStubBuilder
                     enum fieldName = luaMemberName!(T, member);
                     if (!emitted.canFind(fieldName))
                     {
+                        auto desc = luaMemberDescription!(T, member);
                         static if (hasPropertyGetter!(T, member))
                             putLine("---@field public " ~ fieldName ~ " "
-                                    ~ luaStubType!(
-                                        ReturnType!(propertyGetter!(T, member))));
+                                    ~ typeText!(
+                                        ReturnType!(propertyGetter!(T, member)))()
+                                    ~ (desc.length ? " # " ~ desc : ""));
                         else
                             putLine("---@field public " ~ fieldName ~ " "
-                                    ~ luaStubType!(
-                                        Parameters!(propertySetter!(T, member))[0]));
+                                    ~ typeText!(
+                                        Parameters!(propertySetter!(T, member))[0])()
+                                    ~ (desc.length ? " # " ~ desc : ""));
                         emitted ~= fieldName;
                     }
                 }
@@ -530,8 +601,10 @@ struct LuaStubBuilder
                     if (!emitted.canFind(fieldName))
                     {
                         alias FT = typeof(__traits(getMember, T.init, member));
+                        auto desc = luaMemberDescription!(T, member);
                         putLine("---@field public " ~ fieldName ~ " "
-                                ~ luaStubType!(Unqual!FT));
+                                ~ typeText!(Unqual!FT)()
+                                ~ (desc.length ? " # " ~ desc : ""));
                         emitted ~= fieldName;
                     }
                 }
@@ -549,11 +622,13 @@ struct LuaStubBuilder
                        && !fieldBindable!(T, member))
             {
                 static if (staticMethodBindable!(T, member))
-                    putFunctionSet!(T, member, true)(name,
-                                                     luaMemberName!(T, member));
+                    putFunctionSet!(T, member, true)(
+                        name, luaMemberName!(T, member), null,
+                        luaMemberDescription!(T, member));
                 else static if (methodBindable!(T, member))
                     putFunctionSet!(T, member, false, true)(
-                        name, luaMemberName!(T, member), name);
+                        name, luaMemberName!(T, member), name,
+                        luaMemberDescription!(T, member));
             }
         }}
     }
@@ -572,6 +647,7 @@ struct LuaStubBuilder
             {
                 enum fieldName = luaMemberName!(T, member);
                 enum count = countBindableOverloads!(T, member, false, true);
+                auto desc = luaMemberDescription!(T, member);
                 static if (count == 1)
                 {
                     static foreach (F; __traits(getOverloads, T, member))
@@ -581,13 +657,15 @@ struct LuaStubBuilder
                             auto ret = returnTypeText!(ReturnType!F)();
                             putLine("---@field public " ~ fieldName ~ " fun("
                                     ~ overloadParams!F(name) ~ ")"
-                                    ~ (ret.length ? ": " ~ ret : ""));
+                                    ~ (ret.length ? ": " ~ ret : "")
+                                    ~ (desc.length ? " # " ~ desc : ""));
                         }
                     }}
                 }
                 else static if (count > 1)
                     putLine("---@field public " ~ fieldName ~ " fun(self: "
-                            ~ name ~ ", ...): any");
+                            ~ name ~ ", ...): any"
+                            ~ (desc.length ? " # " ~ desc : ""));
             }
         }}
     }
@@ -611,12 +689,17 @@ struct LuaStubBuilder
         }
         else static if (isDiscoverableType!U)
         {
-            static if (is(U == class))
-                addClass!U();
-            else static if (is(U == struct))
-                addStruct!U();
-            else static if (is(U == enum))
-                addEnum!U();
+            // A custom codec representation replaces the default class/struct
+            // declaration, so do not auto-declare overridden types.
+            if (!hasTypeOverride!U)
+            {
+                static if (is(U == class))
+                    addClass!U();
+                else static if (is(U == struct))
+                    addStruct!U();
+                else static if (is(U == enum))
+                    addEnum!U();
+            }
         }
     }
 
@@ -672,8 +755,10 @@ struct LuaStubBuilder
     }
 
     /// Add a global function or overload set.
-    void addFunction(alias Symbol)(string name = luaNameOf!Symbol)
+    void addFunction(alias Symbol)(string name = luaNameOf!Symbol,
+                                   string description = luaDescriptionOf!Symbol)
     {
+        putDescription(description);
         static if (overloadSetLength!Symbol > 1)
         {
             static foreach (F; __traits(getOverloads, __traits(parent, Symbol),
@@ -695,7 +780,8 @@ struct LuaStubBuilder
     }
 
     /// Add a class type table.
-    void addClass(T)(string name = luaTypeName!T)
+    void addClass(T)(string name = luaTypeName!T,
+                     string description = luaTypeDescription!T)
     {
         static assert(is(T == class),
                       "lunarbind: addClass requires a class type");
@@ -716,6 +802,7 @@ struct LuaStubBuilder
 
         addReferencedMembers!(T, true)();
 
+        putDescription(description);
         string header = "---@class " ~ name;
         static if (BaseClassesTuple!T.length
                    && !is(BaseClassesTuple!T[0] == Object))
@@ -729,7 +816,8 @@ struct LuaStubBuilder
     }
 
     /// Add a struct type table and value declaration.
-    void addStruct(S)(string name = luaTypeName!S)
+    void addStruct(S)(string name = luaTypeName!S,
+                      string description = luaTypeDescription!S)
     {
         static assert(is(Unqual!S == struct),
                       "lunarbind: addStruct requires a struct type");
@@ -741,6 +829,7 @@ struct LuaStubBuilder
         // Struct values are value-only, so there is no constructor to inspect.
         addReferencedMembers!(S, false)();
 
+        putDescription(description);
         putLine("---@class " ~ name);
         putFields!S();
         putInstanceMethodFields!S(name);
@@ -754,13 +843,15 @@ struct LuaStubBuilder
             static if (isPublicMember!(S, member)
                        && isLuaExportedMember!(S, member)
                        && staticMethodBindable!(S, member))
-                putFunctionSet!(S, member, true)(name,
-                                                 luaMemberName!(S, member));
+                putFunctionSet!(S, member, true)(
+                    name, luaMemberName!(S, member), null,
+                    luaMemberDescription!(S, member));
         }}
     }
 
     /// Add an enum table.
-    void addEnum(E)(string name = luaTypeName!E)
+    void addEnum(E)(string name = luaTypeName!E,
+                    string description = luaTypeDescription!E)
     {
         static assert(is(E == enum),
                       "lunarbind: addEnum requires an enum type");
@@ -769,20 +860,26 @@ struct LuaStubBuilder
             return;
         markDeclared(name);
 
+        putDescription(description);
         putLine("---@enum " ~ name);
         putLine(name ~ " = {");
         static foreach (member; __traits(allMembers, E))
         {{
             static if (isLuaExportedMember!(E, member))
+            {
+                auto desc = luaMemberDescription!(E, member);
                 putLine("    " ~ luaMemberName!(E, member) ~ " = "
-                        ~ enumValueLiteral!(E, member)() ~ ",");
+                        ~ enumValueLiteral!(E, member)() ~ ","
+                        ~ (desc.length ? " -- " ~ desc : ""));
+            }
         }}
         putLine("}");
         putBlank();
     }
 
     /// Add a module function table.
-    void addModule(alias Module)(string name = luaNameOf!Module)
+    void addModule(alias Module)(string name = luaNameOf!Module,
+                                 string description = luaDescriptionOf!Module)
     {
         if (isDeclared(name))
             return;
@@ -801,6 +898,7 @@ struct LuaStubBuilder
                 }}
         }}
 
+        putDescription(description);
         putLine("---@class " ~ name);
         putLine(name ~ " = {}");
         putBlank();
@@ -809,20 +907,27 @@ struct LuaStubBuilder
         {{
             static if (moduleMemberPublic!(Module, member)
                        && moduleMemberBindable!(Module, member))
-                putFunctionSet!(Module, member)(name,
-                                                luaMemberName!(Module, member));
+                putFunctionSet!(Module, member)(
+                    name, luaMemberName!(Module, member), null,
+                    luaMemberDescription!(Module, member));
         }}
     }
 
-    /// Add a global value with a type annotation. `Symbol` may be a type or a
-    /// variable.
-    void addValue(alias Symbol)(string name,
-                                string luaType = luaStubType!(symbolValueType!Symbol))
+    /// Add a global value with an explicit type annotation. `Symbol` may be a
+    /// type or a variable.
+    void addValue(alias Symbol)(string name, string luaType)
     {
         addReferenced!(symbolValueType!Symbol)();
+        putDescription(luaDescriptionOf!Symbol);
         putLine("---@type " ~ luaType);
         putLine(name ~ " = nil");
         putBlank();
+    }
+
+    /// Add a global value using the default EmmyLua type for `Symbol`.
+    void addValue(alias Symbol)(string name)
+    {
+        addValue!Symbol(name, typeText!(symbolValueType!Symbol)());
     }
 
     /// Add any supported compile-time symbol.
@@ -868,6 +973,25 @@ struct LuaStubBuilder
 string luaStubs(Symbols...)()
 {
     LuaStubBuilder builder;
+    static foreach (Symbol; Symbols)
+        builder.addSymbol!Symbol();
+    return "---@meta\n\n" ~ builder.toString();
+}
+
+/// Generate EmmyLua declarations with explicit Lua type overrides.
+///
+/// The associative array maps `typeid(T)` to the EmmyLua type that should be
+/// used for `T`, which is useful for types with a custom `registerCodec`
+/// representation:
+///
+/// ```d
+/// auto stubs = luaStubs!(Player, Vec2)([typeid(Vec2): "table"]);
+/// ```
+string luaStubs(Symbols...)(string[TypeInfo] typeOverrides)
+{
+    LuaStubBuilder builder;
+    foreach (info, luaType; typeOverrides)
+        builder.setTypeOverride(info, luaType);
     static foreach (Symbol; Symbols)
         builder.addSymbol!Symbol();
     return "---@meta\n\n" ~ builder.toString();

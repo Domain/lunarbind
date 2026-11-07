@@ -193,10 +193,10 @@ class AutoBound
     }
 }
 
-@LuaExport("RenamedBox")
+@LuaExport("RenamedBox", "A box with a renamed field.")
 class ExportedClass
 {
-    @LuaExport("v")
+    @LuaExport("v", "Stored value.")
     int value;
 
     @LuaExport(skip: true)
@@ -207,7 +207,7 @@ class ExportedClass
         this.value = value;
     }
 
-    @LuaExport("plus")
+    @LuaExport("plus", "Adds an amount to the value.")
     int add(int amount)
     {
         value += amount;
@@ -220,7 +220,7 @@ class ExportedClass
         return 99;
     }
 
-    @LuaExport("double")
+    @LuaExport("double", "Doubles a value.")
     static int twice(int value)
     {
         return value * 2;
@@ -232,7 +232,7 @@ class ExportedClass
         return 5;
     }
 
-    @property @LuaExport("total")
+    @property @LuaExport("total", "Current value.")
     int sum() const
     {
         return value;
@@ -256,10 +256,11 @@ enum Color
     blue,
 }
 
-@LuaExport("RenamedColor")
+@LuaExport("RenamedColor", "Traffic-light colors.")
 enum ExportedColor
 {
-    @LuaExport("crimson") red,
+    @LuaExport("crimson", "Deep red.")
+    red,
     green,
     @LuaExport(skip: true) blue,
 }
@@ -451,24 +452,24 @@ struct Point
     }
 }
 
-@LuaExport("RenamedVec")
+@LuaExport("RenamedVec", "A two-dimensional vector.")
 struct ExportedStruct
 {
     int x;
 
-    @LuaExport("yCoord")
+    @LuaExport("yCoord", "Vertical coordinate.")
     int y;
 
     @LuaExport(skip: true)
     int hidden;
 
-    @LuaExport("mag")
+    @LuaExport("mag", "Sum of the coordinates.")
     int magnitude() const
     {
         return x + y;
     }
 
-    @LuaExport("make")
+    @LuaExport("make", "Creates a vector.")
     static ExportedStruct create(int x, int y)
     {
         return ExportedStruct(x, y);
@@ -795,6 +796,23 @@ int coroutineCallback(LuaState L, int value)
 // Filled from a Lua callback; must stay valid after the callback returns.
 LuaTable capturedTable;
 void captureTable(LuaTable table) { capturedTable = table; }
+
+// Used by the module-builder test.
+int moduleAnswer = 42;
+
+// Stand-in for a type with a custom registerCodec representation.
+struct CodecVec
+{
+    int x;
+    int y;
+}
+
+class HasCodecField
+{
+    CodecVec point;
+    CodecVec[] points;
+    Nullable!CodecVec maybe;
+}
 
 unittest
 {
@@ -1626,6 +1644,36 @@ unittest
     static assert(is(typeof(toLua!ExportedColor(L)) == LuaTable));
     static assert(is(typeof(toLua!(lunarbind.exportfixture)(L)) == LuaTable));
 
+    // The module builder composes symbols without creating globals.
+    auto composed = LuaModule.create(L)
+        .addFunction!add("sum")
+        .addFunction!exportPick("pick")
+        .addClass!ExportedClass("Box")
+        .addStruct!ExportedStruct("Vec")
+        .addEnum!ExportedColor("Palette")
+        .addModule!(lunarbind.exportfixture)("fx")
+        .addValue!moduleAnswer("answer")
+        .set("version", 3);
+    assert(composed.table().get!int("version") == 3);
+    L.doString("assert(sum == nil and Box == nil and toolbox == nil)");
+    composed.setGlobal("toolbox");
+    L.doString("
+        assert(toolbox.sum(2, 3) == 5)
+        assert(toolbox.pick(1) == 'int')
+        assert(toolbox.pick('x') == 'string:x')
+        assert(toolbox.answer == 42)
+        assert(toolbox.Palette.crimson == 0)
+        assert(toolbox.Palette.blue == nil)
+        assert(toolbox.fx.fixtureAdd(1, 2) == 3)
+        local box = toolbox.Box(4)
+        assert(box.v == 4)
+        assert(box:plus(3) == 7)
+        assert(toolbox.Box.double(5) == 10)
+        local vec = toolbox.Vec.make(1, 2)
+        assert(vec.x == 1 and vec.yCoord == 2)
+        assert(vec:mag() == 3)
+    ");
+
     auto toLuaEnum = toLua!Color(L);
     assert(toLuaEnum.get!int("red") == 0);
     assert(toLuaEnum.get!int("green") == 1);
@@ -1799,6 +1847,12 @@ unittest
     assert(!exportedClassStub.canFind("hiddenField"));
     assert(!exportedClassStub.canFind("internal"));
     assert(!exportedClassStub.canFind("value ===")); // renamed field only
+    assert(exportedClassStub.canFind("--- A box with a renamed field."));
+    assert(exportedClassStub.canFind(
+        "---@field public v integer # Stored value."));
+    assert(exportedClassStub.canFind("--- Adds an amount to the value."));
+    assert(exportedClassStub.canFind(
+        "---@field public total integer # Current value."));
 
     // Struct type tables expose static methods without a constructor; struct
     // values expose fields and instance methods through the value class.
@@ -1810,13 +1864,18 @@ unittest
     assert(structStub.canFind("function RenamedVec.make(x, y) end"));
     assert(!structStub.canFind("hiddenStatic"));
     assert(!structStub.canFind("hidden "));
+    assert(structStub.canFind("--- A two-dimensional vector."));
+    assert(structStub.canFind(
+        "---@field public yCoord integer # Vertical coordinate."));
+    assert(structStub.canFind("# Sum of the coordinates."));
 
     // Enum tables use renamed members and hide skipped ones.
     auto enumStub = luaStubs!ExportedColor();
     assert(enumStub.canFind("---@enum RenamedColor"));
-    assert(enumStub.canFind("crimson = 0"));
+    assert(enumStub.canFind("crimson = 0, -- Deep red."));
     assert(enumStub.canFind("green = 1"));
     assert(!enumStub.canFind("blue"));
+    assert(enumStub.canFind("--- Traffic-light colors."));
 
     // String-backed enums keep their string values.
     enum Named
@@ -1907,6 +1966,8 @@ unittest
     assert(!moduleStub.canFind("fixtureHidden"));
     assert(!moduleStub.canFind("fixtureSum"));
     assert(!moduleStub.canFind("fixturePick"));
+    assert(moduleStub.canFind("--- Fixture bindings."));
+    assert(moduleStub.canFind("--- Adds two integers."));
 
     // Module signatures discover referenced types before the module table.
     assert(moduleStub.indexOf("---@class FixturePoint")
@@ -1932,6 +1993,21 @@ unittest
 
     // Runtime values are declared with ---@type.
     assert(luaStubs!capturedTable().canFind("---@type table\ncapturedTable = nil"));
+
+    // Custom-codec types can override the generated Lua type, and the override
+    // suppresses the default class declaration.
+    LuaStubBuilder codecBuilder;
+    codecBuilder.setType!CodecVec("table");
+    codecBuilder.addClass!HasCodecField();
+    auto codecStub = codecBuilder.toString();
+    assert(codecStub.canFind("---@field public point table"));
+    assert(codecStub.canFind("---@field public points table[]"));
+    assert(codecStub.canFind("---@field public maybe table|nil"));
+    assert(!codecStub.canFind("---@class CodecVec"));
+
+    auto overrideStub = luaStubs!HasCodecField([typeid(CodecVec): "table"]);
+    assert(overrideStub.canFind("---@field public point table"));
+    assert(!overrideStub.canFind("---@class CodecVec"));
 
     // The builder can be used incrementally.
     LuaStubBuilder builder;

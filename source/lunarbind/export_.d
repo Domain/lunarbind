@@ -19,10 +19,12 @@
 /// call still binds it.
 module lunarbind.export_;
 
-/// Attribute for overriding a Lua name or hiding a member from automatic
-/// binding.
+/// Attribute for overriding a Lua name, adding stub documentation, or hiding a
+/// member from automatic binding.
 ///
 /// - `@LuaExport("name")` sets the Lua name.
+/// - `@LuaExport("name", "text")` also adds `text` as documentation in
+///   generated EmmyLua stubs.
 /// - `@LuaExport(skip: true)` hides the member from `registerModule`,
 ///   `LuaClass!T.bind` and `LuaStruct!S.bind`.
 /// - `@LuaExport` without arguments is accepted and behaves like the default.
@@ -30,6 +32,8 @@ struct LuaExport
 {
     /// Lua name. Empty means "use the D identifier".
     string name;
+    /// Documentation emitted by `luaStubs` / `LuaStubBuilder`.
+    string description;
     /// Hide this member from automatic tables.
     bool skip;
 }
@@ -124,7 +128,7 @@ private template findLuaExportInOverloads(alias Symbol, size_t i = 0)
             else
                 enum LuaExport found = LuaExport.init;
 
-            static if (found.name.length || found.skip)
+            static if (found.name.length || found.description.length || found.skip)
                 enum LuaExport findLuaExportInOverloads = found;
             else
                 enum LuaExport findLuaExportInOverloads =
@@ -151,7 +155,7 @@ private template findLuaExportInMemberOverloads(alias Parent, string member,
             else
                 enum LuaExport found = LuaExport.init;
 
-            static if (found.name.length || found.skip)
+            static if (found.name.length || found.description.length || found.skip)
                 enum LuaExport findLuaExportInMemberOverloads = found;
             else
                 enum LuaExport findLuaExportInMemberOverloads =
@@ -214,6 +218,34 @@ package template luaMemberName(alias Parent, string member)
     enum string luaMemberName = luaExportOfMember!(Parent, member).name.length
         ? luaExportOfMember!(Parent, member).name
         : member;
+}
+
+/// Stub description for a symbol, honoring `@LuaExport("name", "text")`.
+package template luaDescriptionOf(alias Symbol)
+{
+    static if (overloadCount!Symbol > 1)
+        enum string luaDescriptionOf =
+            findLuaExportInOverloads!Symbol.description;
+    else
+        enum string luaDescriptionOf = directLuaExport!Symbol.description;
+}
+
+/// Stub description for a type, honoring `@LuaExport("name", "text")`.
+package template luaTypeDescription(T)
+{
+    enum string luaTypeDescription = luaExportOfType!T.description;
+}
+
+/// Stub description for `Parent.member`, honoring
+/// `@LuaExport("name", "text")`.
+package template luaMemberDescription(alias Parent, string member)
+{
+    static if (memberOverloadCount!(Parent, member) > 0)
+        enum string luaMemberDescription =
+            findLuaExportInMemberOverloads!(Parent, member).description;
+    else
+        enum string luaMemberDescription =
+            directLuaExportMember!(Parent, member).description;
 }
 
 /// Default filter for names that are automatically exposed to Lua.

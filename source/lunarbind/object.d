@@ -1446,15 +1446,14 @@ struct LuaClass(T)
         return lua_type(state.handle, -1) != LUA_TNIL;
     }
 
-    /// Bind this class as a global class table in one call.
+    /// Create the class table without registering a global.
     ///
     /// The table is callable as `name(args...)` when the class has a bindable
     /// constructor. Every public static method becomes a field of the table;
     /// public instance methods are available both as `obj:method(...)` and as
     /// `name.method(obj, ...)`. Fields and properties are reached through the
-    /// instance metatable. `name` defaults to the D class name or its
-    /// `@LuaExport("name")`. Returns a handle to the new table.
-    static LuaTable bind(LuaState state, string name = luaTypeName!T)
+    /// instance metatable. Use `bind` to also register the table as a global.
+    static LuaTable createTable(LuaState state)
     {
         auto L = state.handle;
         ensureMetatable(state);
@@ -1487,8 +1486,24 @@ struct LuaClass(T)
         }}
 
         auto ref_ = LuaRef.make(state, -1);
-        raw.setGlobal(L, toStringz(name));
+        state.pop(1);
         return LuaTable(ref_);
+    }
+
+    /// Bind this class as a global class table in one call.
+    ///
+    /// The table is callable as `name(args...)` when the class has a bindable
+    /// constructor. Every public static method becomes a field of the table;
+    /// public instance methods are available both as `obj:method(...)` and as
+    /// `name.method(obj, ...)`. Fields and properties are reached through the
+    /// instance metatable. `name` defaults to the D class name or its
+    /// `@LuaExport("name")`. Returns a handle to the new table.
+    static LuaTable bind(LuaState state, string name = luaTypeName!T)
+    {
+        auto table = createTable(state);
+        table.push();
+        raw.setGlobal(state.handle, toStringz(name));
+        return table;
     }
 
     /// Register a global callable class table so Lua can construct instances
@@ -1649,15 +1664,13 @@ struct LuaStruct(S)
         return lua_rawequal(state.handle, -1, -2) != 0;
     }
 
-    /// Bind this struct type as a global type table in one call.
+    /// Create the struct type table without registering a global.
     ///
     /// Every public static method becomes a field of the table. Struct values
     /// remain value-only and are bound with `push`, `setGlobal` or
     /// `toLua(L, value, name)`. The type table has no constructor because a
     /// struct has no object identity; create boxes from D or through a codec.
-    /// `name` defaults to the D struct name or its `@LuaExport("name")`.
-    /// Returns a handle to the new table.
-    static LuaTable bind(LuaState state, string name = luaTypeName!S)
+    static LuaTable createTable(LuaState state)
     {
         lua_createtable(state.handle, 0, 0);
         static foreach (member; __traits(allMembers, S))
@@ -1673,7 +1686,23 @@ struct LuaStruct(S)
         }}
 
         auto ref_ = LuaRef.make(state, -1);
-        raw.setGlobal(state.handle, toStringz(name));
+        state.pop(1);
         return LuaTable(ref_);
+    }
+
+    /// Bind this struct type as a global type table in one call.
+    ///
+    /// Every public static method becomes a field of the table. Struct values
+    /// remain value-only and are bound with `push`, `setGlobal` or
+    /// `toLua(L, value, name)`. The type table has no constructor because a
+    /// struct has no object identity; create boxes from D or through a codec.
+    /// `name` defaults to the D struct name or its `@LuaExport("name")`.
+    /// Returns a handle to the new table.
+    static LuaTable bind(LuaState state, string name = luaTypeName!S)
+    {
+        auto table = createTable(state);
+        table.push();
+        raw.setGlobal(state.handle, toStringz(name));
+        return table;
     }
 }

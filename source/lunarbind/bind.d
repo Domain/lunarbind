@@ -28,7 +28,7 @@ import lunarbind.state;
 import lunarbind.conv;
 import lunarbind.table : LuaTable;
 import lunarbind.function_ : LuaFunction, pushFunction, pushDelegate;
-import lunarbind.module_ : pushFunctionSet, registerModule;
+import lunarbind.module_ : enumTable, pushFunctionSet, registerModule;
 import lunarbind.object : LuaClass, LuaStruct;
 import lunarbind.export_ : isLuaExportedMember, luaMemberName, luaNameOf,
                          luaTypeName;
@@ -197,16 +197,8 @@ auto toLua(T)(LuaState state, auto ref T value, string name)
 /// with `@LuaExport("name")` or hidden with `@LuaExport(skip: true)`.
 LuaTable registerEnum(E)(LuaState state, string name = luaTypeName!E)
 {
-    static assert(is(E == enum), "lunarbind: registerEnum requires an enum type");
-
-    auto table = LuaTable.create(state, 0, cast(int) __traits(allMembers, E).length);
-    static foreach (member; __traits(allMembers, E))
-    {{
-        static if (isLuaExportedMember!(E, member))
-            table.set(luaMemberName!(E, member), __traits(getMember, E, member));
-    }}
-
-    table.pushInto(state);
+    auto table = enumTable!E(state);
+    table.push();
     raw.setGlobal(state.handle, toStringz(name));
     return table;
 }

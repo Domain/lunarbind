@@ -158,6 +158,26 @@ injection rules as `registerFunction`. `registerModule!(some.module)(L, "name")`
 binds every public function in a D module as one Lua table, including
 overloads.
 
+For programmatic composition across modules, `LuaModule` builds a table without
+creating globals:
+
+```d
+auto game = LuaModule.create(L)
+    .addFunction!add("add")
+    .addClass!Player("Player")
+    .addEnum!Status("Status")
+    .addModule!mathlib("math")
+    .addValue!buildVersion("buildVersion")
+    .set("author", "lunarbind")
+    .setGlobal("game");
+```
+
+`addFunction`, `addClass`, `addStruct`, `addEnum`, `addModule` and `addValue`
+use the same `@LuaExport` defaults as `toLua`; `set` stores a runtime value and
+`setGlobal` exposes the finished table. The non-global building blocks
+`moduleTable!M(L)`, `enumTable!E(L)`, `LuaClass!T.createTable(L)` and
+`LuaStruct!S.createTable(L)` return tables directly for nesting or storage in D.
+
 ## Naming and filtering with `@LuaExport`
 
 `@LuaExport` controls the Lua names used by automatic tables: `registerModule`,
@@ -183,7 +203,7 @@ class Player
     @LuaExport("hp") int health;
     @LuaExport(skip: true) int internalState;
 
-    @LuaExport("damage") void takeDamage(int amount) { health -= amount; }
+    @LuaExport("damage", "Reduces health.") void takeDamage(int amount) { health -= amount; }
     @LuaExport("heal") void restore(int amount) { health += amount; }
 }
 
@@ -205,6 +225,8 @@ Rules:
 
 - `@LuaExport("name")` replaces the D identifier in automatic tables. It also
   exposes names that are hidden by default (leading `_`, `toString`, ...).
+- `@LuaExport("name", "text")` also attaches `text` as documentation in
+  generated EmmyLua stubs. Descriptions do not affect runtime behavior.
 - `@LuaExport(skip: true)` removes a member from automatic tables.
 - `@LuaExport` with no arguments is accepted and behaves like the default.
 - An explicit `toLua!symbol(L)` call ignores `skip` but honors `name`, so a
@@ -247,14 +269,30 @@ while struct values expose fields and instance methods; enum members use their
 integer or string values; modules contain every exported function with
 overloads listed as `---@overload`.
 
+`@LuaExport("name", "text")` adds documentation: classes and modules get a
+leading `--- text` line, fields and enum members get a trailing comment, and
+functions get a `--- text` line above their signature.
+
 Types referenced by public fields, properties, constructors and method
 signatures (and by module function signatures) are declared automatically and
 emitted before the type that uses them. Discovery follows arrays, associative
 arrays, `Nullable` and `Tuple`, honors `@LuaExport` names, and emits each type
 once even when references form a cycle. Lua handle types, `Object` and
-`Throwable` subclasses are never auto-declared. Auto-declared types assume the
-default class/struct representation; if a referenced type has a custom
-`registerCodec` representation, describe it explicitly instead.
+`Throwable` subclasses are never auto-declared.
+
+Auto-declared types assume the default class/struct representation. If a
+referenced type has a custom `registerCodec` representation, override its
+EmmyLua type; an overridden type is no longer auto-declared:
+
+```d
+LuaStubBuilder builder;
+builder.setType!Vec2("table");  // applies to Vec2, Vec2[] and Nullable!Vec2
+builder.addClass!World();
+write("world.lua", builder.toString());
+
+// Or in one call:
+write("world.lua", luaStubs!World([typeid(Vec2): "table"]));
+```
 
 `LuaStubBuilder` supports incremental output:
 
@@ -438,9 +476,13 @@ with one-call class binding that registers the constructor and all public static
 methods, struct type tables that expose public static methods without a
 constructor, instance methods also callable as `Name.method(obj, ...)`, and
 one-call module binding for all public free functions including overloads;
+incremental `LuaModule` composition plus non-global table builders
+(`moduleTable`, `enumTable`, `LuaClass!T.createTable`,
+`LuaStruct!S.createTable`);
 `@LuaExport` naming and member filtering across classes, structs, enums,
 modules and free functions; EmmyLua stub generation (`luaStubs`,
-`LuaStubBuilder`) from the same metadata; `@property` getters/setters;
+`LuaStubBuilder`) from the same metadata, including descriptions and
+custom-codec type overrides; `@property` getters/setters;
 class-typed fields and method parameters/results; inheritance-aware upcasts (a
 derived userdata is accepted as a base class, not vice versa); constructors from
 Lua through a registered class table (`Class(args...)`); `__tostring` from D
@@ -468,8 +510,10 @@ rather than half-implemented.
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
    seeded randomized stress tests, coverage-guided fuzzing, and `@nogc` fast
    paths where possible.
-2. **Tooling**: module builder, stub descriptions and custom-codec-aware
-   types, and richer documentation generation.
+2. **Tooling** (ongoing): richer documentation generation and editor
+   integration.
+3. **Language coverage**: selective stdlib opening, GC parameters, and
+   C-style/D-style variadics.
 
 ## License
 
