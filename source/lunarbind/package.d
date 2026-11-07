@@ -1,7 +1,8 @@
 /// lunarbind: a transparent, layer-based D <-> Lua binding.
 ///
 /// Public API:
-///   - `LuaState` shared state handle and stack primitives
+///   - `LuaState` shared state handle, selective `LuaLib` loading, GC controls
+///     and stack primitives
 ///   - `LuaTable` / `LuaFunction` typed handles
 ///   - `LuaThread` coroutine create/resume/status handle
 ///   - `LuaValue` dynamic value

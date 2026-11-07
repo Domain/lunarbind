@@ -95,6 +95,36 @@ private StateCore loadStateCore(lua_State* L) nothrow
     return p is null ? null : cast(StateCore) p;
 }
 
+/// Standard Lua libraries that `LuaState.open` can load selectively.
+///
+/// Combine values with `|`:
+///
+/// ```d
+/// auto L = LuaState.open(LuaLib.base | LuaLib.string | LuaLib.table);
+/// ```
+///
+/// `LuaLib.all` requests every known library; libraries that do not exist in
+/// the active Lua version are ignored, so `LuaState.open(true)` and
+/// `LuaState.open(LuaLib.all)` load the same set as `luaL_openlibs`.
+enum LuaLib : uint
+{
+    none = 0,
+    base = 1 << 0,
+    package_ = 1 << 1,
+    coroutine = 1 << 2,
+    table = 1 << 3,
+    io = 1 << 4,
+    os = 1 << 5,
+    string = 1 << 6,
+    math = 1 << 7,
+    utf8 = 1 << 8,
+    debug_ = 1 << 9,
+    bit32 = 1 << 10, // Lua 5.2
+    bit = 1 << 11,   // LuaJIT
+    jit = 1 << 12,   // LuaJIT
+    all = 0x7FFF_FFFF,
+}
+
 // ---------------------------------------------------------------------------
 // LuaState: a cheap, copyable, shared handle.
 // ---------------------------------------------------------------------------
@@ -153,15 +183,103 @@ struct LuaState
     /// Create and own a new Lua state. Standard libraries are opened by default.
     static LuaState open(bool openLibs = true)
     {
+        auto state = open(LuaLib.none);
+        if (openLibs)
+            state.openLibraries(LuaLib.all);
+        return state;
+    }
+
+    /// Create and own a new Lua state with only the selected standard libraries.
+    static LuaState open(LuaLib libs)
+    {
         auto L = luaL_newstate();
         if (L is null)
             throw new LuaException("luaL_newstate() failed");
 
         auto state = LuaState(L, true);
         storeStateCore(L, state._core);
-        if (openLibs)
-            luaL_openlibs(L);
+        state.openLibraries(libs);
         return state;
+    }
+
+    /// Open the selected standard libraries into this state.
+    ///
+    /// Opening a library that is already loaded is harmless: Lua 5.2+ skips it
+    /// through `package.loaded`, and the 5.1/LuaJIT openers are idempotent.
+    /// Libraries that do not exist in the active Lua version are ignored. On
+    /// Lua 5.1 and LuaJIT the `coroutine` functions are part of the base
+    /// library.
+    void openLibraries(LuaLib libs)
+    {
+        ensureOpen();
+
+        if ((libs & LuaLib.base) != LuaLib.none)
+            openLibrary("_G", &luaopen_base);
+
+        if ((libs & LuaLib.package_) != LuaLib.none)
+            openLibrary("package", &luaopen_package);
+
+        static if (LUA_VERSION_NUM >= 502)
+        {
+            if ((libs & LuaLib.coroutine) != LuaLib.none)
+                openLibrary("coroutine", &luaopen_coroutine);
+        }
+
+        if ((libs & LuaLib.table) != LuaLib.none)
+            openLibrary("table", &luaopen_table);
+
+        if ((libs & LuaLib.io) != LuaLib.none)
+            openLibrary("io", &luaopen_io);
+
+        if ((libs & LuaLib.os) != LuaLib.none)
+            openLibrary("os", &luaopen_os);
+
+        if ((libs & LuaLib.string) != LuaLib.none)
+            openLibrary("string", &luaopen_string);
+
+        static if (LUA_VERSION_NUM == 502)
+        {
+            if ((libs & LuaLib.bit32) != LuaLib.none)
+                openLibrary("bit32", &luaopen_bit32);
+        }
+
+        if ((libs & LuaLib.math) != LuaLib.none)
+            openLibrary("math", &luaopen_math);
+
+        static if (LUA_VERSION_NUM >= 503)
+        {
+            if ((libs & LuaLib.utf8) != LuaLib.none)
+                openLibrary("utf8", &luaopen_utf8);
+        }
+
+        version (LUAJIT)
+        {
+            if ((libs & LuaLib.bit) != LuaLib.none)
+                openLibrary("bit", &luaopen_bit);
+
+            if ((libs & LuaLib.jit) != LuaLib.none)
+                openLibrary("jit", &luaopen_jit);
+        }
+
+        if ((libs & LuaLib.debug_) != LuaLib.none)
+            openLibrary("debug", &luaopen_debug);
+    }
+
+    private void openLibrary(string name, lua_CFunction openf)
+    {
+        static if (LUA_VERSION_NUM == 501)
+        {
+            // 5.1/LuaJIT openers register their globals directly and take one
+            // ignored argument, mirroring luaL_openlibs.
+            pushCFunction(_handle, openf);
+            lua_pushlstring(_handle, name.ptr, name.length);
+            raw.call(_handle, 1, 0);
+        }
+        else
+        {
+            luaL_requiref(_handle, toStringz(name), openf, 1);
+            raw.pop(_handle, 1);
+        }
     }
 
     /// Create an owning handle for an existing `lua_State*`.
@@ -215,6 +333,66 @@ struct LuaState
     size_t referenceCount() const @nogc nothrow
     {
         return _core is null ? 0 : _core.refs;
+    }
+
+    // -- garbage collector ----------------------------------------------------
+
+    /// Stop the collector.
+    void gcStop() @nogc nothrow { raw.gc(handle, LUA_GCSTOP, 0); }
+
+    /// Restart the collector.
+    void gcRestart() @nogc nothrow { raw.gc(handle, LUA_GCRESTART, 0); }
+
+    /// Run a full collection cycle.
+    void gcCollect() @nogc nothrow { raw.gc(handle, LUA_GCCOLLECT, 0); }
+
+    /// Memory in use by Lua, in kilobytes.
+    int gcCount() @nogc nothrow { return raw.gc(handle, LUA_GCCOUNT, 0); }
+
+    /// Remainder bytes of `gcCount` (the count is expressed in kilobytes).
+    int gcCountBytes() @nogc nothrow { return raw.gc(handle, LUA_GCCOUNTB, 0); }
+
+    /// Total memory in use by Lua, in bytes.
+    size_t gcBytes() @nogc nothrow
+    {
+        return cast(size_t) gcCount() * 1024 + cast(size_t) gcCountBytes();
+    }
+
+    /// Perform a GC step. Returns nonzero when a collection cycle finished.
+    int gcStep(int stepSize = 0) @nogc nothrow
+    {
+        return raw.gc(handle, LUA_GCSTEP, stepSize);
+    }
+
+    /// True when the collector is running.
+    ///
+    /// Plain Lua 5.1 has no query for this and always reports true.
+    bool gcIsRunning() @nogc nothrow
+    {
+        version (LUAJIT)
+            return raw.gc(handle, LUA_GCISRUNNING, 0) != 0;
+        else static if (LUA_VERSION_NUM >= 502)
+            return raw.gc(handle, LUA_GCISRUNNING, 0) != 0;
+        else
+            return true;
+    }
+
+    /// Set the collector pause (percentage) and return the previous value.
+    int gcSetPause(int pause) @nogc nothrow
+    {
+        static if (LUA_VERSION_NUM >= 505)
+            return raw.gcParam(handle, LUA_GCPPAUSE, pause);
+        else
+            return raw.gc(handle, LUA_GCSETPAUSE, pause);
+    }
+
+    /// Set the collector step multiplier and return the previous value.
+    int gcSetStepMul(int stepMul) @nogc nothrow
+    {
+        static if (LUA_VERSION_NUM >= 505)
+            return raw.gcParam(handle, LUA_GCPSTEPMUL, stepMul);
+        else
+            return raw.gc(handle, LUA_GCSETSTEPMUL, stepMul);
     }
 
     /// Number of currently live LuaState handles sharing the same core.

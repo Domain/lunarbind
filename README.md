@@ -95,6 +95,45 @@ void main()
 }
 ```
 
+## State setup, libraries and GC
+
+`LuaState.open()` loads every standard library for the active Lua version.
+`LuaState.open(false)` creates a bare state, and `LuaState.open(LuaLib...)`
+loads only the selected libraries:
+
+```d
+auto L = LuaState.open(LuaLib.base | LuaLib.string | LuaLib.table);
+assert(L.getGlobal!LuaValue("io").isNil());
+
+// Add more libraries later; opening an already-open library is harmless.
+L.openLibraries(LuaLib.math | LuaLib.os);
+```
+
+Available members are `base`, `package_`, `coroutine`, `table`, `io`, `os`,
+`string`, `math`, `utf8` (5.3+), `debug_`, `bit32` (5.2), `bit` and `jit`
+(LuaJIT), plus `all` and `none`. Libraries that do not exist in the active Lua
+version are ignored, so `LuaLib.all` matches `luaL_openlibs`. On Lua 5.1 and
+LuaJIT the `coroutine` functions are opened together with `base`.
+
+GC controls are thin wrappers over `lua_gc`:
+
+```d
+L.gcCollect();                 // full collection
+size_t bytes = L.gcBytes();    // current Lua memory use
+int kb = L.gcCount();          // kilobytes (remainder in gcCountBytes)
+L.gcStep(1);                   // incremental step
+L.gcStop();                    // pause the collector
+L.gcRestart();
+bool running = L.gcIsRunning();
+L.gcSetPause(200);             // percentage
+L.gcSetStepMul(200);           // step multiplier
+```
+
+`gcIsRunning` reports `true` on plain Lua 5.1, which has no query. The pause
+and step-multiplier setters return the previous value. On Lua 5.5 the same
+operations map to `LUA_GCPARAM`; on earlier versions they map to
+`LUA_GCSETPAUSE` / `LUA_GCSETSTEPMUL`.
+
 ## Unified registration with `toLua`
 
 `toLua` is the recommended facade. It detects the symbol kind at compile time,
@@ -498,9 +537,11 @@ Lua returns; `LuaState` parameters injected into callbacks; weak-key/weak-value
 tables (`LuaWeakness`); coroutine creation and resumption through `LuaThread`;
 `__gc`; `__eq`; D → Lua and Lua → D identity; weak-value identity tables so
 repeated pushes reuse the same userdata; reference-counted GC roots across
-states and class views. Custom per-state codecs (`registerCodec!T`) override the
-default class/struct representation and participate in overload selection
-through their `check` predicate.
+states and class views; selective standard-library loading through `LuaLib` /
+`openLibraries` and GC controls (`gcCollect`, `gcBytes`, `gcStep`, `gcStop`,
+`gcRestart`, `gcIsRunning`, `gcSetPause`, `gcSetStepMul`). Custom per-state
+codecs (`registerCodec!T`) override the default class/struct representation and
+participate in overload selection through their `check` predicate.
 
 Not yet: C-style/D-style variadics. These are deliberately listed on the roadmap
 rather than half-implemented.
@@ -512,8 +553,7 @@ rather than half-implemented.
    paths where possible.
 2. **Tooling** (ongoing): richer documentation generation and editor
    integration.
-3. **Language coverage**: selective stdlib opening, GC parameters, and
-   C-style/D-style variadics.
+3. **Language coverage**: C-style/D-style variadics.
 
 ## License
 

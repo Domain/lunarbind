@@ -2017,3 +2017,66 @@ unittest
     assert(manual.canFind("function sum(a, b) end"));
     assert(manual.canFind("---@type integer\nanswer = nil"));
 }
+
+unittest
+{
+    // Selective standard library loading.
+    auto minimal = LuaState.open(LuaLib.base | LuaLib.string | LuaLib.table);
+    minimal.doString("
+        assert(type(print) == 'function')
+        assert(type(string.format) == 'function')
+        assert(type(table.concat) == 'function')
+        assert(io == nil)
+        assert(os == nil)
+        assert(math == nil)
+        assert(debug == nil)
+        assert(package == nil)
+    ");
+
+    // Libraries can be added after creation, and opening twice is harmless.
+    minimal.openLibraries(LuaLib.math);
+    minimal.openLibraries(LuaLib.math);
+    minimal.doString("assert(math.floor(1.5) == 1)");
+
+    // No libraries at all. The base library also defines `assert`, so check
+    // globals from D instead of running Lua assertions.
+    auto bare = LuaState.open(false);
+    assert(bare.getGlobal!LuaValue("print").isNil());
+    assert(bare.getGlobal!LuaValue("assert").isNil());
+    assert(bare.getGlobal!LuaValue("string").isNil());
+    assert(bare.getGlobal!LuaValue("table").isNil());
+    assert(bare.getGlobal!LuaValue("math").isNil());
+    bare.openLibraries(LuaLib.base);
+    assert(!bare.getGlobal!LuaValue("print").isNil());
+    bare.doString("assert(type(print) == 'function')");
+
+    // LuaLib.all matches the default set for the active Lua version.
+    auto all = LuaState.open(LuaLib.all);
+    all.doString("assert(io and os and math and string and table and package)");
+    version (LUAJIT)
+        all.doString("assert(bit and jit)");
+    else static if (LUA_VERSION_NUM == 502)
+        all.doString("assert(bit32)");
+    else static if (LUA_VERSION_NUM >= 503)
+        all.doString("assert(utf8)");
+
+    // GC controls.
+    minimal.gcCollect();
+    assert(minimal.gcBytes() > 0);
+    assert(minimal.gcCount() >= 0);
+    assert(minimal.gcIsRunning());
+
+    minimal.gcStop();
+    version (LUAJIT)
+        assert(!minimal.gcIsRunning());
+    else static if (LUA_VERSION_NUM >= 502)
+        assert(!minimal.gcIsRunning());
+
+    minimal.gcRestart();
+    assert(minimal.gcIsRunning());
+
+    minimal.gcSetPause(150);
+    minimal.gcSetStepMul(150);
+    minimal.gcStep(1);
+    assert(minimal.gcBytes() > 0);
+}

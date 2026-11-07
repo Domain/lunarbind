@@ -93,6 +93,45 @@ enum int LUA_GCCOUNT = 3;
 enum int LUA_GCCOUNTB = 4;
 enum int LUA_GCSTEP = 5;
 
+// GC parameter operations. Lua 5.5 replaced the individual setter operations
+// with LUA_GCPARAM and moved/renumbered the mode operations.
+static if (LUA_VERSION_NUM >= 505)
+{
+    enum int LUA_GCISRUNNING = 6;
+    enum int LUA_GCGEN = 7;
+    enum int LUA_GCINC = 8;
+    enum int LUA_GCPARAM = 9;
+
+    enum int LUA_GCPMINORMUL = 0;
+    enum int LUA_GCPMAJORMINOR = 1;
+    enum int LUA_GCPMINORMAJOR = 2;
+    enum int LUA_GCPPAUSE = 3;
+    enum int LUA_GCPSTEPMUL = 4;
+    enum int LUA_GCPSTEPSIZE = 5;
+}
+else static if (LUA_VERSION_NUM >= 504)
+{
+    enum int LUA_GCSETPAUSE = 6;
+    enum int LUA_GCSETSTEPMUL = 7;
+    enum int LUA_GCISRUNNING = 9;
+    enum int LUA_GCGEN = 10;
+    enum int LUA_GCINC = 11;
+}
+else static if (LUA_VERSION_NUM >= 502)
+{
+    enum int LUA_GCSETPAUSE = 6;
+    enum int LUA_GCSETSTEPMUL = 7;
+    enum int LUA_GCISRUNNING = 9;
+}
+else
+{
+    enum int LUA_GCSETPAUSE = 6;
+    enum int LUA_GCSETSTEPMUL = 7;
+
+    version (LUAJIT)
+        enum int LUA_GCISRUNNING = 9;
+}
+
 // ---------------------------------------------------------------------------
 // C API: functions present in every supported version
 // ---------------------------------------------------------------------------
@@ -161,6 +200,36 @@ extern(C) nothrow @nogc
     lua_Number  luaL_checknumber(lua_State* L, int arg);
     void luaL_checktype(lua_State* L, int arg, int t);
     void luaL_checkany(lua_State* L, int arg);
+}
+
+// ---------------------------------------------------------------------------
+// Standard library openers and selective loading
+// ---------------------------------------------------------------------------
+
+extern(C) nothrow @nogc
+{
+    int luaopen_base(lua_State* L);
+    int luaopen_package(lua_State* L);
+    int luaopen_coroutine(lua_State* L); // Lua 5.2+
+    int luaopen_table(lua_State* L);
+    int luaopen_io(lua_State* L);
+    int luaopen_os(lua_State* L);
+    int luaopen_string(lua_State* L);
+    int luaopen_math(lua_State* L);
+    int luaopen_debug(lua_State* L);
+    int luaopen_utf8(lua_State* L);    // Lua 5.3+
+    int luaopen_bit32(lua_State* L);   // Lua 5.2
+    int luaopen_bit(lua_State* L);     // LuaJIT
+    int luaopen_jit(lua_State* L);     // LuaJIT
+}
+
+static if (LUA_VERSION_NUM >= 502)
+{
+    extern(C) nothrow @nogc
+    {
+        void luaL_requiref(lua_State* L, const(char)* modname,
+                           lua_CFunction openf, int glb);
+    }
 }
 
 static if (LUA_VERSION_NUM >= 505)
@@ -445,10 +514,18 @@ else
 
     int gc(lua_State* L, int what, int data)
     {
-        static if (LUA_VERSION_NUM >= 504)
-            return lua_gc(L, what, data);
+        static if (LUA_VERSION_NUM >= 505)
+            return lua_gc(L, what, cast(size_t) data); // 5.5 reads size_t for STEP
         else
             return lua_gc(L, what, data);
+    }
+
+    int gcParam(lua_State* L, int param, int data)
+    {
+        static if (LUA_VERSION_NUM >= 505)
+            return lua_gc(L, LUA_GCPARAM, param, data);
+        else
+            return -1; // callers guard on the Lua version
     }
 
     int equal(lua_State* L, int idx1, int idx2)
