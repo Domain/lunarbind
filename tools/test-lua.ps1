@@ -10,7 +10,9 @@
 
     Downloaded/built runtimes are cached under .lua/ in the repository and are
     not committed. Use -Force to refresh them. Pass -Bench to also build and
-    run bench/bench.d against each profile after its tests pass.
+    run bench/bench.d against each profile after its tests pass. After the
+    profile loop, samples/hello.d and samples/stubs.d are compiled and run
+    against the first profile so they cannot drift from the public API.
 
 .EXAMPLE
     .\tools\test-lua.ps1
@@ -279,6 +281,42 @@ function Invoke-ProfileBench {
     }
 }
 
+function Invoke-Samples {
+    param([string]$Profile, [string]$Runtime)
+
+    $libName = if ($Profile -eq "luajit") { "lua51.lib" }
+               else { "lua$($Profile.Substring(3)).lib" }
+    $lib = Join-Path $Runtime $libName
+    $source = Join-Path $Root "source"
+
+    $versionFlag = if ($Compiler -match "dmd") { "-version=" } else { "-d-version=" }
+    $compileArgs = @("-i", "-I$source", "-O")
+    foreach ($version in Get-ProfileVersions $Profile) {
+        $compileArgs += "$versionFlag$version"
+    }
+
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = "$Runtime;$oldPath"
+        foreach ($sample in @("hello", "stubs")) {
+            $exe = Join-Path $Runtime "sample-$sample.exe"
+            $entry = Join-Path $Root "samples\$sample.d"
+            Write-Host "  building sample: $sample"
+            & $Compiler @compileArgs $entry $lib "-of=$exe"
+            if ($LASTEXITCODE -ne 0) {
+                throw "sample build failed: $sample ($Profile)"
+            }
+            & $exe
+            if ($LASTEXITCODE -ne 0) {
+                throw "sample run failed: $sample ($Profile)"
+            }
+        }
+    }
+    finally {
+        $env:PATH = $oldPath
+    }
+}
+
 function Invoke-ProfileTest {
     param([string]$Profile)
 
@@ -321,6 +359,13 @@ Write-Host "  bench:    $(if ($Bench) { 'yes' } else { 'no' })"
 
 foreach ($profile in $Profiles) {
     Invoke-ProfileTest $profile
+}
+
+if ($Profiles.Count -gt 0) {
+    $sampleProfile = $Profiles[0]
+    Write-Host ""
+    Write-Host "== samples ($sampleProfile) =="
+    Invoke-Samples $sampleProfile (Join-Path $RuntimeRoot $sampleProfile)
 }
 
 Write-Host ""

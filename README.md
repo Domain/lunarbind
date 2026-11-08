@@ -478,7 +478,10 @@ builds LuaJIT with MSVC:
 
 Both scripts default to all six profiles, cache runtimes under `.lua/`
 (git-ignored), and use `ldc2`/`dub` from `PATH` unless told otherwise
-(`--compiler` / `-Compiler`). No Lua binaries are committed.
+(`--compiler` / `-Compiler`). No Lua binaries are committed. After the profile
+loop both scripts also compile and run `samples/hello.d` and `samples/stubs.d`
+against the first selected profile, so the samples are checked against the
+public API on every run.
 
 CI runs the distro-package matrix on Linux, the source-built runtime matrix on
 Linux and Windows (LDC and DMD), and Homebrew-based builds on macOS (LDC).

@@ -4,7 +4,9 @@
 # Lua 5.1-5.5 are built from the official lua.org sources. LuaJIT is built from
 # its official git source. Static libraries are cached under .lua/linux/ and are
 # not committed. Pass --bench to also build and run bench/bench.d against each
-# profile after its tests pass.
+# profile after its tests pass. After the profile loop, samples/hello.d and
+# samples/stubs.d are compiled and run against the first profile so they cannot
+# drift from the public API.
 set -euo pipefail
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -248,6 +250,56 @@ run_bench() {
         "$exe"
 }
 
+run_samples() {
+    local profile=$1 version lib sample exe
+    local -a versions=() flags=() link=()
+    case "$profile" in
+        lua51) versions=(LUA_51) ;;
+        lua52) versions=(LUA_52) ;;
+        lua53) versions=(LUA_53) ;;
+        lua54) versions=(LUA_54) ;;
+        lua55) versions=(LUA_55) ;;
+        luajit) versions=(LUA_51 LUAJIT) ;;
+        *)
+            echo "unknown profile: $profile" >&2
+            return 1
+            ;;
+    esac
+
+    if [[ $profile == luajit ]]; then
+        lib="$runtime_root/luajit/lib/libluajit-5.1.a"
+    else
+        version=$(lua_version "$profile")
+        lib="$runtime_root/$profile/lib/liblua${version%.*}.a"
+    fi
+
+    local def
+    if [[ $compiler == *dmd* ]]; then
+        for def in "${versions[@]}"; do
+            flags+=("-version=$def")
+        done
+        link=(-L-lm -L-ldl)
+    else
+        for def in "${versions[@]}"; do
+            flags+=("-d-version=$def")
+        done
+        link=(-L=-lm -L=-ldl)
+    fi
+
+    for sample in hello stubs; do
+        exe="$runtime_root/$profile/sample-$sample"
+        echo "  building sample: $sample"
+        if ! "$compiler" -i -I"$root/source" -O "${flags[@]}" \
+            "$root/samples/$sample.d" "$lib" -of="$exe" "${link[@]}"; then
+            echo "sample build failed: $sample ($profile)" >&2
+            return 1
+        fi
+        LIBRARY_PATH="$runtime_root/$profile/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" \
+            LD_LIBRARY_PATH="$runtime_root/$profile/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            "$exe"
+    done
+}
+
 run_profile() {
     local profile=$1 runtime
     echo
@@ -286,6 +338,10 @@ echo "  bench:    $([[ $bench -eq 1 ]] && echo yes || echo no)"
 for profile in "${profiles[@]}"; do
     run_profile "$profile"
 done
+
+echo
+echo "== samples (${profiles[0]}) =="
+run_samples "${profiles[0]}"
 
 echo
 echo "all profiles passed"
