@@ -40,6 +40,7 @@ struct LuaFunction
     T call(T = LuaValue, Args...)(Args args)
     {
         auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
 
         const base = s.top();

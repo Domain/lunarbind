@@ -547,6 +547,13 @@ created inside a callback stay valid after the callback returns. The underlying
 reference into a different Lua state throws `LuaStateException` instead of
 silently reading the wrong registry.
 
+After the state is closed, `LuaState.handle` returns null and checked operations
+(`loadString`, `eval`, `globals`, `LuaTable.get`/`set`/`opApply`,
+`LuaFunction.call`, `LuaRef.type`) throw `LuaStateException`. Default-initialized
+handles behave the same way instead of tripping a `RefCounted` assertion or
+dereferencing a null state. The `@nogc nothrow` stack primitives, `LuaTable.setUnchecked`
+and `LuaValue.pushUnchecked` stay raw: they assume a live state and valid handle.
+
 A `LuaThread` handle addresses one coroutine's stack while sharing the owner's
 `StateCore` and registry. `LuaThread.resume` pushes arguments on the coroutine
 stack, resumes it, and copies yielded or final values into D. `LuaState.wrap`

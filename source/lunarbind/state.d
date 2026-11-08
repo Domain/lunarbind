@@ -395,10 +395,13 @@ struct LuaState
             return raw.gc(handle, LUA_GCSETSTEPMUL, stepMul);
     }
 
-    /// Number of currently live LuaState handles sharing the same core.
+    /// Raw `lua_State*` used for stack operations.
+    ///
+    /// Returns null once the state has been closed, so raw-pointer users can
+    /// detect a dead handle instead of dereferencing freed memory.
     @property lua_State* handle() @nogc nothrow
     {
-        return _handle;
+        return _core is null || _core.closed ? null : _handle;
     }
 
     /// A handle addressing the main state of this Lua universe. For a handle
@@ -500,6 +503,7 @@ struct LuaState
     auto globals()
     {
         import lunarbind.table : LuaTable;
+        ensureOpen();
         pushGlobalTable(handle);
         auto ref_ = LuaRef.make(this, -1);
         pop(1);
@@ -510,6 +514,7 @@ struct LuaState
     auto loadString(string code, string name = "<string>")
     {
         import lunarbind.function_ : LuaFunction;
+        ensureOpen();
         StackGuard guard = StackGuard(this);
         auto status = raw.loadString(handle, code, toStringz(name));
         if (status != LUA_OK)
@@ -524,6 +529,7 @@ struct LuaState
     LuaValue[] eval(string code, string name = "<string>")
     {
         import lunarbind.value : LuaValue;
+        ensureOpen();
         StackGuard guard = StackGuard(this);
 
         const base = top();
@@ -691,19 +697,35 @@ struct LuaRef
         return _holder.ref_ == 0 || _holder.ref_ == LUA_REFNIL;
     }
 
-    LuaState state() @nogc nothrow { return _holder.state; }
-    int ref_() const @nogc nothrow { return _holder.ref_; }
+    LuaState state() @nogc nothrow
+    {
+        if (!_holder.refCountedStore.isInitialized)
+            return LuaState.init;
+        return _holder.state;
+    }
+
+    int ref_() const @nogc nothrow
+    {
+        if (!_holder.refCountedStore.isInitialized)
+            return 0;
+        return _holder.ref_;
+    }
 
     void push() @nogc nothrow
     {
-        lua_rawgeti(_holder.state.handle, LUA_REGISTRYINDEX, _holder.ref_);
+        assert(_holder.refCountedStore.isInitialized,
+               "LuaRef is not initialized");
+        auto L = _holder.state.handle;
+        assert(L !is null, "LuaRef used after its Lua state was closed");
+        lua_rawgeti(L, LUA_REGISTRYINDEX, _holder.ref_);
     }
 
     /// True when this reference belongs to a live `target` Lua state. Threads
     /// of one state share a registry and therefore belong to each other.
     bool belongsTo(LuaState target)
     {
-        return _holder.state.handle !is null && _holder.state.sharesState(target);
+        auto s = state();
+        return s.handle !is null && s.sharesState(target);
     }
 
     /// Push this reference onto `target`, refusing to leak it into a different
@@ -717,9 +739,11 @@ struct LuaRef
 
     LuaType type()
     {
-        StackGuard guard = StackGuard(_holder.state);
+        auto s = state();
+        s.ensureOpen();
+        StackGuard guard = StackGuard(s);
         push();
-        return _holder.state.typeOf(-1);
+        return s.typeOf(-1);
     }
 
     auto asTable() { import lunarbind.table : LuaTable; return LuaTable(this); }
@@ -727,7 +751,8 @@ struct LuaRef
 
     LuaValue asValue()
     {
-        auto s = _holder.state;
+        auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();
         return LuaValue.fromStack(s, -1);

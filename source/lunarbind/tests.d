@@ -2344,3 +2344,46 @@ unittest
         threw = true;
     assert(threw);
 }
+
+unittest
+{
+    // Closed and default-initialized handles fail with typed errors instead of
+    // dereferencing a null or stale lua_State pointer.
+    auto L = LuaState.open();
+    L.close();
+    assert(!L.isOpen());
+    assert(L.handle is null);
+
+    void expectClosed(void delegate() action, string what)
+    {
+        bool threw;
+        try
+            action();
+        catch (LuaStateException)
+            threw = true;
+        assert(threw, what);
+    }
+
+    expectClosed({ L.loadString("return 1"); }, "loadString");
+    expectClosed({ L.eval("return 1"); }, "eval");
+    expectClosed({ L.globals(); }, "globals");
+    expectClosed({ LuaTable.create(L); }, "table create");
+
+    LuaTable table;
+    assert(table.state().handle is null);
+    expectClosed({ table.get!int("x"); }, "table get");
+    expectClosed({ table.set("x", 1); }, "table set");
+    expectClosed({ table.opApply((LuaValue key, LuaValue value) => 0); },
+                 "table opApply");
+
+    LuaFunction fn;
+    expectClosed({ fn.call!int(); }, "function call");
+
+    LuaRef ref_;
+    assert(ref_.state().handle is null);
+    assert(ref_.isNull());
+    assert(ref_.ref_() == 0);
+    expectClosed({ ref_.type(); }, "ref type");
+    expectClosed({ ref_.asValue(); }, "ref value");
+    expectClosed({ ref_.pushInto(L); }, "ref pushInto");
+}

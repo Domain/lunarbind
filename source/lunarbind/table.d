@@ -43,6 +43,7 @@ struct LuaTable
     /// Create a fresh, empty table.
     static LuaTable create(LuaState state, int arrayHint = 0, int recordHint = 0)
     {
+        state.ensureOpen();
         lua_createtable(state.handle, arrayHint, recordHint);
         auto ref_ = LuaRef.make(state, -1);
         state.pop(1);
@@ -69,6 +70,7 @@ struct LuaTable
             return;
 
         auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();                                  // [table]
         if (lua_getmetatable(s.handle, -1) == 0)
@@ -92,6 +94,7 @@ struct LuaTable
     T get(T, K)(K key)
     {
         auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();
         requireTable(s);
@@ -104,6 +107,7 @@ struct LuaTable
     T tryGet(T, K)(K key, out bool found)
     {
         auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();
         requireTable(s);
@@ -121,6 +125,7 @@ struct LuaTable
     void set(T, K)(K key, T value)
     {
         auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();
         requireTable(s);
@@ -164,6 +169,7 @@ struct LuaTable
     int opApply(scope int delegate(LuaValue key, LuaValue value) dg)
     {
         auto s = state();
+        s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();
         requireTable(s);
