@@ -2163,8 +2163,8 @@ private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
     L.gcBytes();
     L.setGlobal("answer", 42);
 
-    t.set("x", i);
-    t.set(1, s);
+    t.setUnchecked("x", i);
+    t.setUnchecked(1, s);
     t.push();
     t.length();
 
@@ -2305,4 +2305,42 @@ unittest
     expectError("player.unknown = 1");          // unknown field
     expectError("return Vec(1) + 2");           // binary operator
     expectError("return Vec(1) < 2");           // comparison
+}
+
+unittest
+{
+    // Table operations validate the receiver before entering Lua's
+    // unprotected error path.
+    auto L = LuaState.open();
+    auto fn = toLua!add(L, "add");
+    auto bogus = fn.ref_().asTable();
+
+    bool threw;
+    try
+        bogus.get!int("x");
+    catch (LuaTypeException e)
+        threw = e.msg.canFind("expected table, got function");
+    assert(threw);
+
+    threw = false;
+    try
+        bogus.set("x", 1);
+    catch (LuaTypeException)
+        threw = true;
+    assert(threw);
+
+    bool found;
+    threw = false;
+    try
+        bogus.tryGet!int("x", found);
+    catch (LuaTypeException)
+        threw = true;
+    assert(threw);
+
+    threw = false;
+    try
+        bogus.opApply((LuaValue key, LuaValue value) => 0);
+    catch (LuaTypeException)
+        threw = true;
+    assert(threw);
 }

@@ -144,8 +144,8 @@ from real-time or `@nogc` code:
 - `LuaState.push` for `bool`, integers, floating-point values, strings,
   `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars
 - `LuaState.setGlobal` (keys are pushed as length-delimited strings)
-- `LuaTable.set` with primitive keys and values, `LuaTable.push` and
-  `LuaTable.length`
+- `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
+  `LuaTable.length` (`LuaTable.set` adds a receiver check and may throw)
 - `LuaRef.push` / `ref_` / `isNull`, `LuaFunction.push`, `LuaTable.state`
 - `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
 - copying a `LuaState` handle, `mainState` and `sharesState`

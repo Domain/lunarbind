@@ -30,6 +30,16 @@ struct LuaTable
         _ref = ref_;
     }
 
+    // The value must be a table before lua_gettable/lua_settable/lua_next run:
+    // those calls raise Lua errors, and an unprotected error would longjmp out
+    // of D code and abort the process.
+    private static void requireTable(LuaState state)
+    {
+        if (state.typeOf(-1) != LuaType.table)
+            throw new LuaTypeException(
+                "expected table, got " ~ state.typeName(-1));
+    }
+
     /// Create a fresh, empty table.
     static LuaTable create(LuaState state, int arrayHint = 0, int recordHint = 0)
     {
@@ -81,36 +91,56 @@ struct LuaTable
     /// Get a field/entry. `key` may be a string, integer, or any pushable value.
     T get(T, K)(K key)
     {
-        StackGuard guard = StackGuard(state());
+        auto s = state();
+        StackGuard guard = StackGuard(s);
         push();
-        pushTo(state(), key);
-        lua_gettable(state().handle, -2);
-        return popFrom!T(state(), -1);
+        requireTable(s);
+        pushTo(s, key);
+        lua_gettable(s.handle, -2);
+        return popFrom!T(s, -1);
     }
 
     /// Get an entry; `found` is false when the value is nil.
     T tryGet(T, K)(K key, out bool found)
     {
-        StackGuard guard = StackGuard(state());
+        auto s = state();
+        StackGuard guard = StackGuard(s);
         push();
-        pushTo(state(), key);
-        lua_gettable(state().handle, -2);
-        if (lua_type(state().handle, -1) == LUA_TNIL)
+        requireTable(s);
+        pushTo(s, key);
+        lua_gettable(s.handle, -2);
+        if (lua_type(s.handle, -1) == LUA_TNIL)
         {
             found = false;
             return T.init;
         }
         found = true;
-        return popFrom!T(state(), -1);
+        return popFrom!T(s, -1);
     }
 
     void set(T, K)(K key, T value)
     {
-        StackGuard guard = StackGuard(state());
+        auto s = state();
+        StackGuard guard = StackGuard(s);
         push();
-        pushTo(state(), key);
-        pushTo(state(), value);
-        lua_settable(state().handle, -3);
+        requireTable(s);
+        pushTo(s, key);
+        pushTo(s, value);
+        lua_settable(s.handle, -3);
+    }
+
+    /// Set a field/entry without checking that the receiver is a table.
+    ///
+    /// Use this on hot paths after confirming the handle refers to a table.
+    /// It never allocates for primitive keys and values.
+    void setUnchecked(T, K)(K key, T value)
+    {
+        auto s = state();
+        StackGuard guard = StackGuard(s);
+        push();
+        pushTo(s, key);
+        pushTo(s, value);
+        lua_settable(s.handle, -3);
     }
 
     LuaValue opIndex(K)(K key)
@@ -136,6 +166,7 @@ struct LuaTable
         auto s = state();
         StackGuard guard = StackGuard(s);
         push();
+        requireTable(s);
         auto tableIndex = s.top();
         lua_pushnil(s.handle);
         while (lua_next(s.handle, tableIndex) != 0)
