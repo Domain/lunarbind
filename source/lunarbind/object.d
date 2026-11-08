@@ -720,10 +720,7 @@ private extern(C) int classToString(T)(lua_State* L) nothrow
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private extern(C) int classLen(T)(lua_State* L) nothrow
@@ -739,10 +736,7 @@ private extern(C) int classLen(T)(lua_State* L) nothrow
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private bool bindableIsInstance(T)(LuaState state, int idx)
@@ -767,11 +761,8 @@ private extern(C) int classBinary(T, string op)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         if (!bindableIsInstance!T(state, 1) || !bindableIsInstance!T(state, 2))
-        {
-            auto msg = "operator " ~ op ~ " expects two " ~ T.stringof ~ " operands";
-            lua_pushlstring(L, msg.ptr, msg.length);
-            return lua_error(L);
-        }
+            throw new LuaTypeException(
+                "operator " ~ op ~ " expects two " ~ T.stringof ~ " operands");
 
         T self = bindableGet!T(state, 1);
         T other = bindableGet!T(state, 2);
@@ -779,10 +770,7 @@ private extern(C) int classBinary(T, string op)(lua_State* L) nothrow
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private extern(C) int classUnary(T, string op)(lua_State* L) nothrow
@@ -791,21 +779,15 @@ private extern(C) int classUnary(T, string op)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         if (!bindableIsInstance!T(state, 1))
-        {
-            auto msg = "operator " ~ op ~ " expects a " ~ T.stringof ~ " operand";
-            lua_pushlstring(L, msg.ptr, msg.length);
-            return lua_error(L);
-        }
+            throw new LuaTypeException(
+                "operator " ~ op ~ " expects a " ~ T.stringof ~ " operand");
 
         T self = bindableGet!T(state, 1);
         pushTo(state, self.opUnary!op());
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private extern(C) int classCompare(T, bool inclusive)(lua_State* L) nothrow
@@ -814,11 +796,8 @@ private extern(C) int classCompare(T, bool inclusive)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         if (!bindableIsInstance!T(state, 1) || !bindableIsInstance!T(state, 2))
-        {
-            auto msg = "comparison expects two " ~ T.stringof ~ " operands";
-            lua_pushlstring(L, msg.ptr, msg.length);
-            return lua_error(L);
-        }
+            throw new LuaTypeException(
+                "comparison expects two " ~ T.stringof ~ " operands");
 
         T self = bindableGet!T(state, 1);
         T other = bindableGet!T(state, 2);
@@ -830,10 +809,7 @@ private extern(C) int classCompare(T, bool inclusive)(lua_State* L) nothrow
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private void setBinaryOperator(T, string op, string meta)(lua_State* L)
@@ -949,10 +925,7 @@ private extern(C) int structEq(S)(lua_State* L) nothrow
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private void ensureStructMetatable(S)(LuaState state)
@@ -1109,10 +1082,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
         return 1;
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private extern(C) int classNewIndex(T)(lua_State* L) nothrow
@@ -1176,20 +1146,14 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
         }
 
         if (lua_type(L, 2) == LUA_TSTRING)
-        {
-            luaL_argerror(L, 2, "unknown field");
-            return 0;
-        }
+            throw new LuaArgumentException(
+                "bad argument #2 to '" ~ T.stringof ~ "' (unknown field)");
 
-        auto msg = T.stringof ~ " does not support indexed assignment";
-        lua_pushlstring(L, msg.ptr, msg.length);
-        return lua_error(L);
+        throw new LuaArgumentException(
+            T.stringof ~ " does not support indexed assignment");
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private extern(C) int constructorThunk(T)(lua_State* L) nothrow
@@ -1228,16 +1192,12 @@ private extern(C) int constructorThunk(T)(lua_State* L) nothrow
             }
         }
 
-        auto msg = "no matching constructor for " ~ T.stringof
-                 ~ "(" ~ luaArgumentTypes(L, 2, nargs) ~ ")";
-        lua_pushlstring(L, msg.ptr, msg.length);
-        return lua_error(L);
+        throw new LuaArgumentException(
+            "no matching constructor for " ~ T.stringof
+            ~ "(" ~ luaArgumentTypes(L, 2, nargs) ~ ")");
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
@@ -1272,16 +1232,12 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
             }
         }}
 
-        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member
-                 ~ "(" ~ luaArgumentTypes(L, 2, nargs) ~ ")";
-        lua_pushlstring(L, msg.ptr, msg.length);
-        return lua_error(L);
+        throw new LuaArgumentException(
+            "no matching overload for " ~ T.stringof ~ "." ~ member
+            ~ "(" ~ luaArgumentTypes(L, 2, nargs) ~ ")");
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 // Class-table entry for an instance method: `Class.method(obj, ...)`. The
@@ -1293,18 +1249,12 @@ private extern(C) int classTableMethodThunk(T, string member)(lua_State* L) noth
     {
         auto state = LuaState.wrap(L);
         if (!LuaClass!T.isInstance(state, 1))
-        {
-            auto msg = "expected " ~ T.stringof ~ " userdata as self";
-            lua_pushlstring(L, msg.ptr, msg.length);
-            return lua_error(L);
-        }
+            throw new LuaTypeException(
+                "expected " ~ T.stringof ~ " userdata as self");
         return methodThunk!(T, member)(L);
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 // Class-table entry for a static method: no receiver is consumed.
@@ -1338,16 +1288,12 @@ private extern(C) int staticMethodThunk(T, string member)(lua_State* L) nothrow
             }
         }}
 
-        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member
-                 ~ "(" ~ luaArgumentTypes(L, 1, nargs) ~ ")";
-        lua_pushlstring(L, msg.ptr, msg.length);
-        return lua_error(L);
+        throw new LuaArgumentException(
+            "no matching overload for " ~ T.stringof ~ "." ~ member
+            ~ "(" ~ luaArgumentTypes(L, 1, nargs) ~ ")");
     }
     catch (Throwable e)
-    {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
-    }
+        return pushError(L, e);
 }
 
 // ---------------------------------------------------------------------------

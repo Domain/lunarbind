@@ -10,7 +10,7 @@ static import raw = lunarbind.raw;
 import lunarbind.state;
 import lunarbind.conv : pushTo;
 import lunarbind.dispatch : fillCallArgs, isRawLuaFunction, luaArgumentTypes,
-                            pushCallResult;
+                            pushCallResult, raiseLuaError;
 import lunarbind.function_ : pushDelegate, pushFunction;
 import lunarbind.object : LuaClass, LuaStruct, callMatches, callableBindable,
                           overloadBindable;
@@ -48,51 +48,54 @@ private template anyModuleOverloadBindable(alias Module, string member, size_t i
 
 package extern(C) int functionSetThunk(alias Parent, string member)(lua_State* L) nothrow
 {
+    string errorMessage;
     try
     {
-        auto state = LuaState.wrap(L);
-        auto nargs = cast(size_t) lua_gettop(L);
+        {
+            auto state = LuaState.wrap(L);
+            auto nargs = cast(size_t) lua_gettop(L);
 
-        static foreach (i, F; __traits(getOverloads, Parent, member))
-        {{
-            static if (overloadBindable!F && !isRawLuaFunction!F)
-            {
-                if (callMatches!F(state, 1, nargs))
+            static foreach (i, F; __traits(getOverloads, Parent, member))
+            {{
+                static if (overloadBindable!F && !isRawLuaFunction!F)
                 {
-                    Tuple!(Parameters!F) args;
-                    fillCallArgs!F(state, args, nargs, 1);
+                    if (callMatches!F(state, 1, nargs))
+                    {
+                        Tuple!(Parameters!F) args;
+                        fillCallArgs!F(state, args, nargs, 1);
 
-                    static if (is(ReturnType!F == void))
-                    {
-                        F(args.expand);
-                        return 0;
-                    }
-                    else
-                    {
-                        return pushCallResult(state, F(args.expand));
+                        static if (is(ReturnType!F == void))
+                        {
+                            F(args.expand);
+                            return 0;
+                        }
+                        else
+                        {
+                            return pushCallResult(state, F(args.expand));
+                        }
                     }
                 }
-            }
-        }}
+            }}
 
-        // Raw Lua callbacks consume the stack themselves and have no fixed
-        // arity, so they are the last resort after typed overloads.
-        static foreach (i, F; __traits(getOverloads, Parent, member))
-        {{
-            static if (callableBindable!F && isRawLuaFunction!F)
-                return F(L);
-        }}
+            // Raw Lua callbacks consume the stack themselves and have no fixed
+            // arity, so they are the last resort after typed overloads.
+            static foreach (i, F; __traits(getOverloads, Parent, member))
+            {{
+                static if (callableBindable!F && isRawLuaFunction!F)
+                    return F(L);
+            }}
 
-        auto msg = "no matching overload for " ~ luaMemberName!(Parent, member)
-                 ~ "(" ~ luaArgumentTypes(L, 1, nargs) ~ ")";
-        lua_pushlstring(L, msg.ptr, msg.length);
-        return lua_error(L);
+            errorMessage = "no matching overload for "
+                         ~ luaMemberName!(Parent, member)
+                         ~ "(" ~ luaArgumentTypes(L, 1, nargs) ~ ")";
+        }
     }
     catch (Throwable e)
     {
-        lua_pushlstring(L, e.msg.ptr, e.msg.length);
-        return lua_error(L);
+        errorMessage = e.msg.length ? e.msg : "D exception";
     }
+    // `state` is gone here; lua_error may longjmp safely.
+    return raiseLuaError(L, errorMessage);
 }
 
 /// Push a set of same-named functions as one Lua function.

@@ -6,11 +6,33 @@ module lunarbind.dispatch;
 
 import lunarbind.state;
 import lunarbind.conv;
-import lunarbind.raw : LUA_TNUMBER, isInteger, lua_State, lua_type, lua_typename;
+import lunarbind.raw : LUA_TNUMBER, isInteger, lua_State, lua_error,
+                      lua_pushlstring, lua_type, lua_typename;
 
 import std.traits : Parameters, ParameterDefaults, ReturnType,
                     variadicFunctionStyle, Variadic, Unqual, isInstanceOf;
 import std.typecons : Tuple;
+
+/// Raise `msg` as a Lua error.
+///
+/// `lua_error` uses `longjmp`, so no D object with a destructor may be live at
+/// the call site: its cleanup would be skipped. Compute the message in an
+/// inner scope, leave it, and only then raise.
+package int raiseLuaError(lua_State* L, string msg) nothrow
+{
+    lua_pushlstring(L, msg.ptr, msg.length);
+    return lua_error(L);
+}
+
+/// Convert a caught D exception into a Lua error. Safe to call from a catch
+/// block, after D unwinding has destroyed the live locals of the `try` body.
+package int pushError(lua_State* L, Throwable e) nothrow
+{
+    auto msg = e.msg;
+    if (msg.length == 0)
+        msg = "D exception";
+    return raiseLuaError(L, msg);
+}
 
 /// Comma-separated Lua type names for `count` arguments starting at `start`.
 ///

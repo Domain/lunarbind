@@ -156,6 +156,19 @@ are intentionally not `@nogc`. When you need a no-allocation path, validate
 with `typeOf` and read through the stack primitives, or use
 `LuaValue.pushUnchecked` after confirming state ownership yourself.
 
+## Error handling
+
+Errors raised by bound D callbacks become ordinary Lua errors, so they can be
+caught with `pcall` or `LuaFunction.call`. Dispatch failures name the symbol and
+the supplied argument types, for example
+`no matching overload for add(string, integer)`.
+
+Lua raises errors with `longjmp`, which skips D destructors. lunarbind builds
+the message inside the `try` body, lets normal D unwinding destroy temporary
+`LuaState` handles and argument tuples, and only then calls `lua_error`. State
+reference counts therefore stay balanced after a failed call, and closing the
+state still succeeds.
+
 ## Unified registration with `toLua`
 
 `toLua` is the recommended facade. It detects the symbol kind at compile time,
@@ -600,7 +613,8 @@ arguments are handled through raw `lua_CFunction` callbacks (see above).
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
    seeded randomized stress tests, and coverage-guided fuzzing. Primitive
    stack, table and state paths are already `@nogc`; checked conversions stay
-   allocating because they throw typed errors.
+   allocating because they throw typed errors. Callback errors unwind safely
+   across the Lua `longjmp` boundary without leaking state references.
 2. **Tooling** (ongoing): richer documentation generation and editor
    integration.
 3. **API polish**: v0.2 review of names, attributes and error messages.

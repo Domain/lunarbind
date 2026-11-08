@@ -2272,3 +2272,37 @@ unittest
             "no matching overload for AutoBound.overloaded(boolean)");
     assert(sawStatic);
 }
+
+unittest
+{
+    // Lua errors longjmp out of callbacks, so every temporary LuaState must be
+    // destroyed before lua_error runs; otherwise its reference leaks.
+    auto L = LuaState.open();
+    toLua!Player(L);
+    toLua!AutoBound(L);
+    toLua!Vec(L);
+    auto player = new Player(10, "bob");
+    toLua!player(L);
+    auto fx = registerModule!(lunarbind.exportfixture)(L, "fx");
+
+    auto before = L.referenceCount();
+
+    void expectError(string code)
+    {
+        bool threw;
+        try
+            L.doString(code);
+        catch (LuaException)
+            threw = true;
+        assert(threw, code);
+        assert(L.referenceCount() == before, code);
+    }
+
+    expectError("return Player('x')");          // constructor
+    expectError("player:damage('x')");          // instance method
+    expectError("AutoBound.overloaded(true)");  // static method
+    expectError("return fx.fixtureAdd('x', 1)"); // module function
+    expectError("player.unknown = 1");          // unknown field
+    expectError("return Vec(1) + 2");           // binary operator
+    expectError("return Vec(1) < 2");           // comparison
+}

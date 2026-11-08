@@ -136,7 +136,9 @@ private string argumentCount(size_t n)
     return n == 1 ? "1 argument" : to!string(n) ~ " arguments";
 }
 
-private void checkArity(alias F)(int given, LuaState state)
+// Throws a D exception instead of raising a Lua error: the caller's
+// `LuaState` and argument tuple must unwind normally before `lua_error` runs.
+private void checkArity(alias F)(int given)
 {
     import std.conv : to;
     enum required = requiredParamCount!F;
@@ -147,24 +149,18 @@ private void checkArity(alias F)(int given, LuaState state)
     static if (variadicFunctionStyle!F == Variadic.typesafe)
     {
         if (given < required)
-        {
-            auto msg = name ~ ": expected at least " ~ argumentCount(required)
-                     ~ ", got " ~ argumentCount(given);
-            lua_pushlstring(state.handle, msg.ptr, msg.length);
-            lua_error(state.handle);
-        }
+            throw new LuaArgumentException(
+                name ~ ": expected at least " ~ argumentCount(required)
+                ~ ", got " ~ argumentCount(given));
     }
     else
     {
         enum fixed = luaFixedCount!F;
         if (given < required || given > fixed)
-        {
-            auto msg = name ~ ": expected between " ~ to!string(required)
-                     ~ " and " ~ argumentCount(fixed)
-                     ~ ", got " ~ argumentCount(given);
-            lua_pushlstring(state.handle, msg.ptr, msg.length);
-            lua_error(state.handle);
-        }
+            throw new LuaArgumentException(
+                name ~ ": expected between " ~ to!string(required)
+                ~ " and " ~ argumentCount(fixed)
+                ~ ", got " ~ argumentCount(given));
     }
 }
 
@@ -172,7 +168,7 @@ private int invokeAlias(alias F)(LuaState state)
 {
     alias P = Parameters!F;
     auto nargs = cast(size_t) lua_gettop(state.handle);
-    checkArity!F(cast(int) nargs, state);
+    checkArity!F(cast(int) nargs);
     Tuple!P args;
     fillCallArgs!F(state, args, nargs, 1);
     static if (is(ReturnType!F == void))
@@ -190,7 +186,7 @@ private int invokeValue(Dg)(LuaState state, Dg callable)
 {
     alias P = Parameters!Dg;
     auto nargs = cast(size_t) lua_gettop(state.handle);
-    checkArity!Dg(cast(int) nargs, state);
+    checkArity!Dg(cast(int) nargs);
     Tuple!P args;
     fillCallArgs!Dg(state, args, nargs, 1);
     static if (is(ReturnType!Dg == void))
@@ -202,15 +198,6 @@ private int invokeValue(Dg)(LuaState state, Dg callable)
     {
         return pushCallResult(state, callable(args.expand));
     }
-}
-
-private int pushError(lua_State* L, Throwable e) nothrow
-{
-    auto msg = e.msg;
-    if (msg.length == 0)
-        msg = "D exception";
-    lua_pushlstring(L, msg.ptr, msg.length);
-    return lua_error(L);
 }
 
 /// Wrap a compile-time D function/lambda as a Lua C function.
