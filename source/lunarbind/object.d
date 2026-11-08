@@ -1228,7 +1228,8 @@ private extern(C) int constructorThunk(T)(lua_State* L) nothrow
             }
         }
 
-        auto msg = "no matching constructor for " ~ T.stringof;
+        auto msg = "no matching constructor for " ~ T.stringof
+                 ~ "(" ~ luaArgumentTypes(L, 2, nargs) ~ ")";
         lua_pushlstring(L, msg.ptr, msg.length);
         return lua_error(L);
     }
@@ -1271,7 +1272,8 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
             }
         }}
 
-        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member;
+        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member
+                 ~ "(" ~ luaArgumentTypes(L, 2, nargs) ~ ")";
         lua_pushlstring(L, msg.ptr, msg.length);
         return lua_error(L);
     }
@@ -1336,7 +1338,8 @@ private extern(C) int staticMethodThunk(T, string member)(lua_State* L) nothrow
             }
         }}
 
-        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member;
+        auto msg = "no matching overload for " ~ T.stringof ~ "." ~ member
+                 ~ "(" ~ luaArgumentTypes(L, 1, nargs) ~ ")";
         lua_pushlstring(L, msg.ptr, msg.length);
         return lua_error(L);
     }

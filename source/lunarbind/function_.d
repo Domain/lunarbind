@@ -130,16 +130,26 @@ final class LuaBoundFunction(Ret, Args...)
 // D -> Lua callback wrappers
 // ---------------------------------------------------------------------------
 
+private string argumentCount(size_t n)
+{
+    import std.conv : to;
+    return n == 1 ? "1 argument" : to!string(n) ~ " arguments";
+}
+
 private void checkArity(alias F)(int given, LuaState state)
 {
     import std.conv : to;
     enum required = requiredParamCount!F;
+    static if (__traits(compiles, __traits(identifier, F)))
+        enum name = __traits(identifier, F);
+    else
+        enum name = F.stringof;
     static if (variadicFunctionStyle!F == Variadic.typesafe)
     {
         if (given < required)
         {
-            auto msg = "expected at least " ~ to!string(required)
-                     ~ " arguments, got " ~ to!string(given);
+            auto msg = name ~ ": expected at least " ~ argumentCount(required)
+                     ~ ", got " ~ argumentCount(given);
             lua_pushlstring(state.handle, msg.ptr, msg.length);
             lua_error(state.handle);
         }
@@ -149,9 +159,9 @@ private void checkArity(alias F)(int given, LuaState state)
         enum fixed = luaFixedCount!F;
         if (given < required || given > fixed)
         {
-            auto msg = "expected between " ~ to!string(required)
-                     ~ " and " ~ to!string(fixed)
-                     ~ " arguments, got " ~ to!string(given);
+            auto msg = name ~ ": expected between " ~ to!string(required)
+                     ~ " and " ~ argumentCount(fixed)
+                     ~ ", got " ~ argumentCount(given);
             lua_pushlstring(state.handle, msg.ptr, msg.length);
             lua_error(state.handle);
         }

@@ -6,11 +6,36 @@ module lunarbind.dispatch;
 
 import lunarbind.state;
 import lunarbind.conv;
-import lunarbind.raw : lua_State;
+import lunarbind.raw : LUA_TNUMBER, isInteger, lua_State, lua_type, lua_typename;
 
 import std.traits : Parameters, ParameterDefaults, ReturnType,
                     variadicFunctionStyle, Variadic, Unqual, isInstanceOf;
 import std.typecons : Tuple;
+
+/// Comma-separated Lua type names for `count` arguments starting at `start`.
+///
+/// Used in dispatch error messages so a failed call reports the shapes that
+/// were actually supplied, for example `no matching overload for add(string)`.
+package string luaArgumentTypes(lua_State* L, int start, size_t count)
+{
+    import std.array : appender;
+    import std.string : fromStringz;
+
+    auto result = appender!string();
+    foreach (i; 0 .. count)
+    {
+        if (i != 0)
+            result.put(", ");
+        auto idx = start + cast(int) i;
+        // Lua 5.3+ reports integers as LUA_TNUMBER; refine the name so the
+        // message distinguishes integer arguments from floating-point ones.
+        if (lua_type(L, idx) == LUA_TNUMBER && isInteger(L, idx))
+            result.put("integer");
+        else
+            result.put(fromStringz(lua_typename(L, lua_type(L, idx))));
+    }
+    return result.data;
+}
 
 /// Number of parameters matched one-to-one with Lua arguments. A typesafe
 /// variadic's final array parameter is filled from the argument tail instead.

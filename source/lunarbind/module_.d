@@ -9,7 +9,8 @@ import lunarbind.raw;
 static import raw = lunarbind.raw;
 import lunarbind.state;
 import lunarbind.conv : pushTo;
-import lunarbind.dispatch : fillCallArgs, isRawLuaFunction, pushCallResult;
+import lunarbind.dispatch : fillCallArgs, isRawLuaFunction, luaArgumentTypes,
+                            pushCallResult;
 import lunarbind.function_ : pushDelegate, pushFunction;
 import lunarbind.object : LuaClass, LuaStruct, callMatches, callableBindable,
                           overloadBindable;
@@ -82,7 +83,8 @@ package extern(C) int functionSetThunk(alias Parent, string member)(lua_State* L
                 return F(L);
         }}
 
-        auto msg = "no matching overload for " ~ luaMemberName!(Parent, member);
+        auto msg = "no matching overload for " ~ luaMemberName!(Parent, member)
+                 ~ "(" ~ luaArgumentTypes(L, 1, nargs) ~ ")";
         lua_pushlstring(L, msg.ptr, msg.length);
         return lua_error(L);
     }

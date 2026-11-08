@@ -2215,3 +2215,60 @@ unittest
         threw = true;
     assert(threw);
 }
+
+unittest
+{
+    // Dispatch errors name the symbol and the supplied Lua argument types.
+    auto L = LuaState.open();
+
+    auto addFn = toLua!add(L, "add");
+    bool sawArity;
+    try
+        addFn.call!int(1);
+    catch (LuaException e)
+        sawArity = e.msg.canFind(
+            "add: expected between 2 and 2 arguments, got 1 argument");
+    assert(sawArity);
+
+    auto fx = registerModule!(lunarbind.exportfixture)(L, "fx");
+    bool sawModule;
+    try
+        fx.get!LuaFunction("fixtureAdd").call!int("x", 1);
+    catch (LuaException e)
+    {
+        // Lua 5.1/5.2/LuaJIT have no integer subtype, so the numeric
+        // argument is reported as `number` there.
+        sawModule = e.msg.canFind("no matching overload for fixtureAdd(string, ")
+                 && (e.msg.canFind("integer)") || e.msg.canFind("number)"));
+    }
+    assert(sawModule);
+
+    toLua!Player(L);
+    auto player = new Player(10, "bob");
+    toLua!player(L);
+
+    bool sawCtor;
+    try
+        L.doString("return Player('x')");
+    catch (LuaException e)
+        sawCtor = e.msg.canFind(
+            "no matching constructor for Player(string)");
+    assert(sawCtor);
+
+    bool sawMethod;
+    try
+        L.doString("player:damage('x')");
+    catch (LuaException e)
+        sawMethod = e.msg.canFind(
+            "no matching overload for Player.damage(string)");
+    assert(sawMethod);
+
+    toLua!AutoBound(L);
+    bool sawStatic;
+    try
+        L.doString("AutoBound.overloaded(true)");
+    catch (LuaException e)
+        sawStatic = e.msg.canFind(
+            "no matching overload for AutoBound.overloaded(boolean)");
+    assert(sawStatic);
+}
