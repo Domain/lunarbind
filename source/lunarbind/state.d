@@ -586,17 +586,26 @@ struct LuaState
     string errorText(int idx)
     {
         ensureOpen();
+        auto absIdx = raw.absIndex(handle, idx);
         static if (LUA_VERSION_NUM >= 502)
         {
-            size_t len;
-            auto p = luaL_tolstring(handle, idx, &len);
-            string s = p is null ? "unknown Lua error" : p[0 .. len].idup;
-            pop(1);
-            return s;
+            // `luaL_tolstring` runs `__tostring`; protect it so a broken
+            // metamethod cannot escape as an unprotected Lua error.
+            pushCFunction(handle, &errorToStringThunk);
+            lua_pushvalue(handle, absIdx);
+            if (raw.pcall(handle, 1, 1, 0) == LUA_OK)
+            {
+                size_t len;
+                auto p = lua_tolstring(handle, -1, &len);
+                string s = p is null ? "unknown Lua error" : p[0 .. len].idup;
+                pop(1);
+                return s;
+            }
+            pop(1); // the error raised while converting the original error
+            return "unknown Lua error";
         }
         else
         {
-            auto absIdx = raw.absIndex(handle, idx);
             size_t len;
             auto p = lua_tolstring(handle, absIdx, &len);
             if (p !is null)
@@ -605,11 +614,15 @@ struct LuaState
             if (lua_type(handle, -1) == LUA_TFUNCTION)
             {
                 lua_pushvalue(handle, absIdx);
-                raw.call(handle, 1, 1);
-                auto p2 = lua_tolstring(handle, -1, &len);
-                string s2 = p2 is null ? "unknown Lua error" : p2[0 .. len].idup;
+                if (raw.pcall(handle, 1, 1, 0) == LUA_OK)
+                {
+                    auto p2 = lua_tolstring(handle, -1, &len);
+                    string s2 = p2 is null ? "unknown Lua error" : p2[0 .. len].idup;
+                    pop(1);
+                    return s2;
+                }
                 pop(1);
-                return s2;
+                return "unknown Lua error";
             }
             pop(1);
             return "unknown Lua error";
@@ -773,6 +786,17 @@ package extern(C) int luaMessageHandler(lua_State* L) nothrow
         luaL_traceback(L, L, msg, 1);
     }
     return 1;
+}
+
+// Converts an arbitrary error value to a string. Run under pcall so a failing
+// `__tostring` metamethod cannot longjmp out of `errorText`.
+static if (LUA_VERSION_NUM >= 502)
+{
+    private extern(C) int errorToStringThunk(lua_State* L) nothrow
+    {
+        luaL_tolstring(L, 1, null);
+        return 1;
+    }
 }
 
 // ---------------------------------------------------------------------------

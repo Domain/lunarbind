@@ -2387,3 +2387,80 @@ unittest
     expectClosed({ ref_.asValue(); }, "ref value");
     expectClosed({ ref_.pushInto(L); }, "ref pushInto");
 }
+
+unittest
+{
+    // Converting an error value must survive a failing __tostring metamethod:
+    // the conversion itself runs under pcall instead of longjmping out of D.
+    auto L = LuaState.open();
+    bool threw;
+    try
+        L.doString(
+            "error(setmetatable({}, " ~
+            "{__tostring = function() error('boom') end}))");
+    catch (LuaException e)
+    {
+        threw = true;
+        assert(e.msg.length > 0);
+    }
+    assert(threw);
+}
+
+unittest
+{
+    // Metamethod errors in table get/set become D exceptions, and invalid
+    // keys are rejected before lua_settable can raise.
+    auto L = LuaState.open();
+    L.doString(`
+        t = setmetatable({}, {
+            __index = function(_, k) return "default:" .. k end,
+            __newindex = function(t, k, v) rawset(t, k, v) end,
+        })
+        bad = setmetatable({}, {
+            __index = function() error("no index") end,
+            __newindex = function() error("no newindex") end,
+        })
+    `);
+
+    auto t = L.getGlobal!LuaTable("t");
+    assert(t.get!string("missing") == "default:missing");
+    t.set("x", 42);
+    assert(t.get!int("x") == 42);
+
+    auto bad = L.getGlobal!LuaTable("bad");
+    bool threw;
+    try
+        bad.get!int("x");
+    catch (LuaException e)
+        threw = e.msg.canFind("no index");
+    assert(threw);
+
+    threw = false;
+    try
+        bad.set("x", 1);
+    catch (LuaException e)
+        threw = e.msg.canFind("no newindex");
+    assert(threw);
+
+    bool found;
+    threw = false;
+    try
+        bad.tryGet!int("x", found);
+    catch (LuaException e)
+        threw = e.msg.canFind("no index");
+    assert(threw);
+
+    threw = false;
+    try
+        t.set(LuaValue(), 1);
+    catch (LuaArgumentException e)
+        threw = e.msg.canFind("nil");
+    assert(threw);
+
+    threw = false;
+    try
+        t.set(double.nan, 1);
+    catch (LuaArgumentException e)
+        threw = e.msg.canFind("NaN");
+    assert(threw);
+}

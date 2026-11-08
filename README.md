@@ -145,7 +145,8 @@ from real-time or `@nogc` code:
   `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars
 - `LuaState.setGlobal` (keys are pushed as length-delimited strings)
 - `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
-  `LuaTable.length` (`LuaTable.set` adds a receiver check and may throw)
+  `LuaTable.length` (`LuaTable.set` validates the receiver and key and may
+  throw)
 - `LuaRef.push` / `ref_` / `isNull`, `LuaFunction.push`, `LuaTable.state`
 - `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
 - copying a `LuaState` handle, `mainState` and `sharesState`
@@ -168,6 +169,12 @@ the message inside the `try` body, lets normal D unwinding destroy temporary
 `LuaState` handles and argument tuples, and only then calls `lua_error`. State
 reference counts therefore stay balanced after a failed call, and closing the
 state still succeeds.
+
+`LuaTable.get`, `tryGet` and `set` run `__index`/`__newindex` under `pcall`, so a
+metamethod that raises becomes a `LuaException` instead of an unprotected Lua
+error. Tables without those metamethods take the direct `lua_gettable`/
+`lua_settable` path. `set` rejects nil and NaN keys before calling Lua;
+`setUnchecked` skips all of these checks.
 
 ## Unified registration with `toLua`
 
