@@ -189,7 +189,9 @@ metamethod under `pcall`, and `LuaState.setGlobalChecked` does the same for
 `__newindex`; registration helpers such as `toLua`, `LuaClass!T.setGlobal`,
 `LuaStruct!S.setGlobal`, `registerModule` and `LuaModule.setGlobal` use the
 checked path. `LuaState.setGlobal` remains the raw allocation-free fast path
-and deliberately skips those checks.
+and deliberately skips those checks. Opening a standard library through
+`openLibraries` also runs the opener and its global registration under `pcall`,
+so a tampered `_G` or `package.loaded` raises `LuaException`.
 
 ## Unified registration with `toLua`
 

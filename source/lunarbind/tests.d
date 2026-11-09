@@ -2537,3 +2537,21 @@ unittest
     L.setGlobal("raw_global", 3);
     assert(L.getGlobal!int("raw_global") == 3);
 }
+
+unittest
+{
+    // Opening a library after tampering with _G must raise instead of aborting.
+    auto L = LuaState.open(LuaLib.base);
+    L.doString(`
+        setmetatable(_G, {
+            __newindex = function() error("library blocked") end,
+        })
+    `);
+
+    bool threw;
+    try
+        L.openLibraries(LuaLib.string);
+    catch (LuaException e)
+        threw = e.msg.canFind("library blocked");
+    assert(threw);
+}

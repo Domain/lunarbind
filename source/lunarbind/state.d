@@ -273,12 +273,21 @@ struct LuaState
             // ignored argument, mirroring luaL_openlibs.
             pushCFunction(_handle, openf);
             lua_pushlstring(_handle, name.ptr, name.length);
-            raw.call(_handle, 1, 0);
+            auto status = raw.pcall(_handle, 1, 0, 0);
+            if (status != LUA_OK)
+                throw tableError(this, status);
         }
         else
         {
-            luaL_requiref(_handle, toStringz(name), openf, 1);
-            raw.pop(_handle, 1);
+            // luaL_requiref calls the opener with lua_call and then sets a
+            // global; run the whole thing under pcall so a tampered _G or
+            // package.loaded cannot longjmp out of D.
+            pushCFunction(_handle, &requirefThunk);
+            lua_pushlightuserdata(_handle, cast(void*) openf);
+            lua_pushlstring(_handle, name.ptr, name.length);
+            auto status = raw.pcall(_handle, 2, 0, 0);
+            if (status != LUA_OK)
+                throw tableError(this, status);
         }
     }
 
@@ -875,6 +884,19 @@ else
     {
         raw.getGlobal(L, "tostring");
         return 1;
+    }
+}
+
+static if (LUA_VERSION_NUM >= 502)
+{
+    // Run luaL_requiref under pcall. The opener is passed as light userdata in
+    // argument 1 and the library name as a string in argument 2.
+    private extern(C) int requirefThunk(lua_State* L) nothrow
+    {
+        auto openf = cast(lua_CFunction) lua_touserdata(L, 1);
+        auto name = lua_tolstring(L, 2, null);
+        luaL_requiref(L, name, openf, 1);
+        return 0;
     }
 }
 
