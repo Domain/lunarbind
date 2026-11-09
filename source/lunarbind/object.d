@@ -1367,16 +1367,17 @@ struct LuaClass(T)
     static void setGlobal(LuaState state, string name, T obj)
     {
         push(state, obj);
-        raw.setGlobal(state.handle, toStringz(name));
+        state.setGlobalChecked(name);
     }
 
     /// Read a global variable as a D object (null if nil).
     static T getGlobal(LuaState state, string name)
     {
-        raw.getGlobal(state.handle, toStringz(name));
-        scope(exit) raw.pop(state.handle, 1);
-        if (lua_type(state.handle, -1) == LUA_TNIL)
+        auto value = state.getGlobal!LuaValue(name);
+        if (value.isNil())
             return null;
+        StackGuard guard = StackGuard(state);
+        value.push(state);
         return get(state, -1);
     }
 
@@ -1465,7 +1466,7 @@ struct LuaClass(T)
     {
         auto table = createTable(state);
         table.push();
-        raw.setGlobal(state.handle, toStringz(name));
+        state.setGlobalChecked(name);
         return table;
     }
 
@@ -1600,16 +1601,17 @@ struct LuaStruct(S)
         if (is(Unqual!T == S))
     {
         push(state, value);
-        raw.setGlobal(state.handle, toStringz(name));
+        state.setGlobalChecked(name);
     }
 
     /// Read a global variable as a struct value (S.init if nil).
     static S getGlobal(LuaState state, string name)
     {
-        raw.getGlobal(state.handle, toStringz(name));
-        scope(exit) raw.pop(state.handle, 1);
-        if (lua_type(state.handle, -1) == LUA_TNIL)
+        auto value = state.getGlobal!LuaValue(name);
+        if (value.isNil())
             return S.init;
+        StackGuard guard = StackGuard(state);
+        value.push(state);
         return get(state, -1);
     }
 
@@ -1665,7 +1667,7 @@ struct LuaStruct(S)
     {
         auto table = createTable(state);
         table.push();
-        raw.setGlobal(state.handle, toStringz(name));
+        state.setGlobalChecked(name);
         return table;
     }
 }

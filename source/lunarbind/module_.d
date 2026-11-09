@@ -145,7 +145,7 @@ LuaTable registerModule(alias Module)(LuaState state,
 {
     auto table = moduleTable!Module(state);
     table.push();
-    raw.setGlobal(state.handle, toStringz(name));
+    state.setGlobalChecked(name);
     return table;
 }
 
@@ -228,7 +228,7 @@ struct LuaModule
     LuaTable setGlobal(string name)
     {
         _table.push();
-        raw.setGlobal(_state.handle, toStringz(name));
+        _state.setGlobalChecked(name);
         return _table;
     }
 

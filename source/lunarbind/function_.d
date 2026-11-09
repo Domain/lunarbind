@@ -338,14 +338,14 @@ void pushFunction(alias Func)(LuaState state)
 void registerFunction(alias Func)(LuaState state, string name)
 {
     pushFunction!Func(state);
-    raw.setGlobal(state.handle, toStringz(name));
+    state.setGlobalChecked(name);
 }
 
 /// Register a runtime delegate as a global.
 void registerDelegate(Dg)(LuaState state, string name, Dg dg)
 {
     pushDelegate(state, dg);
-    raw.setGlobal(state.handle, toStringz(name));
+    state.setGlobalChecked(name);
 }
 
 /// Create a library table and register functions from (name, function) pairs.
@@ -358,5 +358,5 @@ void registerLibrary(Args...)(LuaState state, string libName)
         pushFunction!(Args[i * 2 + 1])(state);
         lua_setfield(state.handle, -2, toStringz(Args[i * 2]));
     }}
-    raw.setGlobal(state.handle, toStringz(libName));
+    state.setGlobalChecked(libName);
 }

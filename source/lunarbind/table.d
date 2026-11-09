@@ -43,16 +43,9 @@ struct LuaTable
     // True when the table at `idx` has a non-nil metamethod field. A table
     // without `__index`/`__newindex` cannot raise from get/set, so the common
     // path stays a direct lua_gettable/lua_settable call.
-    private static bool hasMetamethod(LuaState s, int idx, string name)
-    {
-        auto abs = raw.absIndex(s.handle, idx);
-        if (lua_getmetatable(s.handle, abs) == 0)
-            return false;
-        lua_pushlstring(s.handle, name.ptr, name.length);
-        auto t = lua_rawget(s.handle, -2);
-        s.pop(2);
-        return t != LUA_TNIL;
-    }
+    //
+    // `hasMetamethod`, `tableError`, `getTableThunk` and `setTableThunk` are
+    // shared with LuaState globals access and live in lunarbind.state.
 
     // Nil and NaN keys make lua_settable raise; validate them before the call.
     private static void checkSettableKey(LuaState s, int idx)
@@ -66,24 +59,6 @@ struct LuaTable
             if (n != n)
                 throw new LuaArgumentException("table index is NaN");
         }
-    }
-
-    private static LuaException tableError(LuaState s, int status)
-    {
-        auto msg = s.errorText(-1);
-        return new LuaException(msg, cast(LuaStatus) status, msg);
-    }
-
-    private extern(C) static int getTableThunk(lua_State* L) nothrow
-    {
-        lua_gettable(L, 1);
-        return 1;
-    }
-
-    private extern(C) static int setTableThunk(lua_State* L) nothrow
-    {
-        lua_settable(L, 1);
-        return 0;
     }
 
     private extern(C) static int nextThunk(lua_State* L) nothrow

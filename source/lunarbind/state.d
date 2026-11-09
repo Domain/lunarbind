@@ -483,6 +483,9 @@ struct LuaState
         return popFrom!T(this, idx);
     }
 
+    /// Set a global. This is the raw fast path: it does not check that the
+    /// state is open and does not protect a `_G` `__newindex` metamethod.
+    /// Use `setGlobalChecked` when either matters.
     void setGlobal(T)(string name, T value)
     {
         import lunarbind.conv : pushTo;
@@ -490,11 +493,72 @@ struct LuaState
         raw.setGlobalString(handle, name);
     }
 
+    /// Pop the top value and assign it to a global, running a `_G`
+    /// `__newindex` metamethod under `pcall`.
+    ///
+    /// Throws `LuaStateException` when the state is closed and `LuaException`
+    /// when the metamethod raises.
+    void setGlobalChecked(string name)
+    {
+        ensureOpen();
+        auto valueIndex = top();
+        if (valueIndex == 0)
+            throw new LuaArgumentException(
+                "setGlobalChecked requires a value on the stack");
+        scope(exit) setTop(valueIndex - 1);
+        raw.pushGlobalTable(handle);                    // [value, globals]
+        lua_pushlstring(handle, name.ptr, name.length); // [value, globals, key]
+        lua_pushvalue(handle, valueIndex);              // [value, globals, key, value]
+        raw.remove(handle, valueIndex);                 // [globals, key, value]
+        auto tableIndex = top() - 2;
+        if (hasMetamethod(this, tableIndex, "__newindex"))
+        {
+            pushCFunction(handle, &setTableThunk);      // [globals, key, value, thunk]
+            raw.insert(handle, tableIndex);             // [thunk, globals, key, value]
+            auto status = raw.pcall(handle, 3, 0, 0);
+            if (status != LUA_OK)
+                throw tableError(this, status);
+        }
+        else
+        {
+            lua_settable(handle, tableIndex);
+        }
+    }
+
+    /// Push `value` and assign it to a global with `__newindex` protection.
+    void setGlobalChecked(T)(string name, T value)
+    {
+        import lunarbind.conv : pushTo;
+        ensureOpen();
+        auto savedTop = top();
+        scope(exit) setTop(savedTop);
+        pushTo(this, value);
+        setGlobalChecked(name);
+    }
+
+    /// Read a global. A `_G` `__index` metamethod runs under `pcall`, so a
+    /// raising metamethod becomes a `LuaException` instead of an unprotected
+    /// Lua error.
     T getGlobal(T)(string name)
     {
         import lunarbind.conv : popFrom;
+        ensureOpen();
         StackGuard guard = StackGuard(this);
-        raw.getGlobalString(handle, name);
+        raw.pushGlobalTable(handle);
+        auto tableIndex = top();
+        lua_pushlstring(handle, name.ptr, name.length);
+        if (hasMetamethod(this, tableIndex, "__index"))
+        {
+            pushCFunction(handle, &getTableThunk);      // [globals, key, thunk]
+            raw.insert(handle, tableIndex);             // [thunk, globals, key]
+            auto status = raw.pcall(handle, 2, 1, 0);
+            if (status != LUA_OK)
+                throw tableError(this, status);
+        }
+        else
+        {
+            lua_gettable(handle, tableIndex);
+        }
         return popFrom!T(this, -1);
     }
 
@@ -610,7 +674,12 @@ struct LuaState
             auto p = lua_tolstring(handle, absIdx, &len);
             if (p !is null)
                 return p[0 .. len].idup;
-            raw.getGlobal(handle, "tostring");
+            pushCFunction(handle, &globalTostringThunk);
+            if (raw.pcall(handle, 0, 1, 0) != LUA_OK)
+            {
+                pop(1);
+                return "unknown Lua error";
+            }
             if (lua_type(handle, -1) == LUA_TFUNCTION)
             {
                 lua_pushvalue(handle, absIdx);
@@ -797,6 +866,50 @@ static if (LUA_VERSION_NUM >= 502)
         luaL_tolstring(L, 1, null);
         return 1;
     }
+}
+else
+{
+    // Lua 5.1 has no luaL_tolstring. Fetch the global `tostring` under pcall
+    // so a `_G` __index metamethod cannot longjmp out of `errorText` either.
+    private extern(C) int globalTostringThunk(lua_State* L) nothrow
+    {
+        raw.getGlobal(L, "tostring");
+        return 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Metamethod-aware table access shared by LuaTable and globals access
+// ---------------------------------------------------------------------------
+
+// True when the value at `idx` has a metatable with a non-nil `name` field.
+package bool hasMetamethod(LuaState s, int idx, string name) @nogc nothrow
+{
+    auto abs = raw.absIndex(s.handle, idx);
+    if (lua_getmetatable(s.handle, abs) == 0)
+        return false;
+    lua_pushlstring(s.handle, name.ptr, name.length);
+    auto t = lua_rawget(s.handle, -2);
+    s.pop(2);
+    return t != LUA_TNIL;
+}
+
+package extern(C) int getTableThunk(lua_State* L) nothrow
+{
+    lua_gettable(L, 1);
+    return 1;
+}
+
+package extern(C) int setTableThunk(lua_State* L) nothrow
+{
+    lua_settable(L, 1);
+    return 0;
+}
+
+package LuaException tableError(LuaState s, int status)
+{
+    auto msg = s.errorText(-1);
+    return new LuaException(msg, cast(LuaStatus) status, msg);
 }
 
 // ---------------------------------------------------------------------------

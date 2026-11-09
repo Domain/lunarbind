@@ -143,7 +143,8 @@ from real-time or `@nogc` code:
   `absIndex`, `checkStack`, `typeOf`, `protectedCall`) and GC controls
 - `LuaState.push` for `bool`, integers, floating-point values, strings,
   `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars
-- `LuaState.setGlobal` (keys are pushed as length-delimited strings)
+- `LuaState.setGlobal` (keys are pushed as length-delimited strings; this is
+  the raw path and does not protect a `_G` `__newindex` metamethod)
 - `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
   `LuaTable.length` (`LuaTable.set` validates the receiver and key and may
   throw)
@@ -182,6 +183,13 @@ body mutates the table in a way that invalidates the current key, Lua's
 process. Keys are copied into `LuaValue` between steps, so the traversal holds
 no Lua stack reference to them; modifying existing entries is safe, while
 adding new keys may raise that exception.
+
+Global access follows the same rule. `LuaState.getGlobal` runs a `_G` `__index`
+metamethod under `pcall`, and `LuaState.setGlobalChecked` does the same for
+`__newindex`; registration helpers such as `toLua`, `LuaClass!T.setGlobal`,
+`LuaStruct!S.setGlobal`, `registerModule` and `LuaModule.setGlobal` use the
+checked path. `LuaState.setGlobal` remains the raw allocation-free fast path
+and deliberately skips those checks.
 
 ## Unified registration with `toLua`
 

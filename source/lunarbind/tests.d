@@ -2490,3 +2490,50 @@ unittest
     }) == 1);
     assert(count == 1);
 }
+
+unittest
+{
+    // Globals access protects _G __index/__newindex metamethods.
+    auto L = LuaState.open();
+    L.doString(`
+        setmetatable(_G, {
+            __index = function(_, k)
+                if k == "missing_global" then error("no global") end
+                return nil
+            end,
+            __newindex = function(t, k, v)
+                if k == "blocked_global" then error("blocked global") end
+                rawset(t, k, v)
+            end,
+        })
+    `);
+
+    bool threw;
+    try
+        L.getGlobal!int("missing_global");
+    catch (LuaException e)
+        threw = e.msg.canFind("no global");
+    assert(threw);
+
+    threw = false;
+    try
+        L.setGlobalChecked("blocked_global", 1);
+    catch (LuaException e)
+        threw = e.msg.canFind("blocked global");
+    assert(threw);
+
+    L.setGlobalChecked("allowed_global", 7);
+    assert(L.getGlobal!int("allowed_global") == 7);
+
+    // Registration helpers use the checked path too.
+    threw = false;
+    try
+        toLua!add(L, "blocked_global");
+    catch (LuaException e)
+        threw = e.msg.canFind("blocked global");
+    assert(threw);
+
+    // The raw fast path still bypasses the check.
+    L.setGlobal("raw_global", 3);
+    assert(L.getGlobal!int("raw_global") == 3);
+}
