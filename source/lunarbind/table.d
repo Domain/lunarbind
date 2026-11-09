@@ -86,6 +86,12 @@ struct LuaTable
         return 0;
     }
 
+    private extern(C) static int nextThunk(lua_State* L) nothrow
+    {
+        // [table, key] -> [key, value], or no results at the end.
+        return lua_next(L, 1) != 0 ? 2 : 0;
+    }
+
     /// Create a fresh, empty table.
     static LuaTable create(LuaState state, int arrayHint = 0, int recordHint = 0)
     {
@@ -254,6 +260,10 @@ struct LuaTable
     }
 
     /// Iterate the table. Supports `break`/`return` from the loop body.
+    ///
+    /// Each step runs under `pcall`, so `lua_next` raising
+    /// `invalid key to 'next'` (for example because the loop body added a new
+    /// key) becomes a `LuaException` instead of an unprotected error.
     int opApply(scope int delegate(LuaValue key, LuaValue value) dg)
     {
         auto s = state();
@@ -262,12 +272,26 @@ struct LuaTable
         push();
         requireTable(s);
         auto tableIndex = s.top();
-        lua_pushnil(s.handle);
-        while (lua_next(s.handle, tableIndex) != 0)
+
+        LuaValue currentKey; // nil starts the traversal
+        while (true)
         {
-            auto key = LuaValue.fromStack(s, -2);
-            auto value = LuaValue.fromStack(s, -1);
-            s.pop(1); // pop value, keep key for lua_next
+            pushCFunction(s.handle, &nextThunk);   // [table, thunk]
+            lua_pushvalue(s.handle, tableIndex);   // [table, thunk, table]
+            currentKey.push(s);                    // [table, thunk, table, key]
+            auto status = raw.pcall(s.handle, 2, LUA_MULTRET, 0);
+            if (status != LUA_OK)
+                throw tableError(s, status);
+
+            auto produced = s.top() - tableIndex;
+            if (produced == 0)
+                break;
+
+            auto key = LuaValue.fromStack(s, tableIndex + 1);
+            auto value = LuaValue.fromStack(s, tableIndex + 2);
+            s.pop(2);
+            currentKey = key;
+
             auto result = dg(key, value);
             if (result != 0)
                 return result;

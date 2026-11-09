@@ -2464,3 +2464,29 @@ unittest
         threw = e.msg.canFind("NaN");
     assert(threw);
 }
+
+unittest
+{
+    // opApply copies keys through the registry between protected steps.
+    auto L = LuaState.open();
+    auto t = LuaTable.create(L);
+    t.set("a", "1");
+    t.set("b", "2");
+
+    string keys;
+    int count;
+    assert(t.opApply((LuaValue key, LuaValue value) {
+        keys ~= key.stringValue;
+        ++count;
+        return 0;
+    }) == 0);
+    assert(count == 2);
+    assert(keys.canFind("a") && keys.canFind("b"));
+
+    count = 0;
+    assert(t.opApply((LuaValue key, LuaValue value) {
+        ++count;
+        return 1; // break
+    }) == 1);
+    assert(count == 1);
+}

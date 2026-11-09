@@ -176,6 +176,13 @@ error. Tables without those metamethods take the direct `lua_gettable`/
 `lua_settable` path. `set` rejects nil and NaN keys before calling Lua;
 `setUnchecked` skips all of these checks.
 
+`LuaTable.opApply` also runs each `lua_next` step under `pcall`. If the loop
+body mutates the table in a way that invalidates the current key, Lua's
+`invalid key to 'next'` error becomes a `LuaException` instead of aborting the
+process. Keys are copied into `LuaValue` between steps, so the traversal holds
+no Lua stack reference to them; modifying existing entries is safe, while
+adding new keys may raise that exception.
+
 ## Unified registration with `toLua`
 
 `toLua` is the recommended facade. It detects the symbol kind at compile time,
