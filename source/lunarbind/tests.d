@@ -612,6 +612,12 @@ struct TaggedCodec
     }
 }
 
+// Key type whose codec removes the current entry during AA conversion.
+struct MutatingKey
+{
+    string name;
+}
+
 class Defaults
 {
     int base;
@@ -909,6 +915,18 @@ unittest
         assert(count == 1)
         assert(weakBoth[1] == 'kept')
     ");
+
+    // setWeakness writes __mode with rawset, so a metatable's __newindex
+    // cannot intercept the assignment or raise out of D.
+    auto weakGuarded = LuaTable.create(L);
+    L.setGlobal("weakGuarded", weakGuarded);
+    L.doString("
+        setmetatable(weakGuarded, {
+            __newindex = function() error('no writes') end,
+        })
+    ");
+    weakGuarded.setWeakness(LuaWeakness.keys);
+    L.doString("assert(getmetatable(weakGuarded).__mode == 'k')");
 
     // Lua functions from D
     auto f = L.loadString("return 40 + 2");
@@ -1674,6 +1692,33 @@ unittest
         assert(vec.x == 1 and vec.yCoord == 2)
         assert(vec:mag() == 3)
     ");
+
+    // LuaModule.set/addFunction protect a __newindex metamethod on the module
+    // table instead of letting it longjmp out of D.
+    L.doString("
+        setmetatable(toolbox, {
+            __newindex = function(t, k, v)
+                if k == 'blocked' then error('module blocked') end
+                rawset(t, k, v)
+            end,
+        })
+    ");
+    bool blocked;
+    try
+        composed.set("blocked", 1);
+    catch (LuaException e)
+        blocked = e.msg.canFind("module blocked");
+    assert(blocked);
+
+    composed.set("allowed", 2);
+    assert(composed.table().get!int("allowed") == 2);
+
+    blocked = false;
+    try
+        composed.addFunction!add("blocked");
+    catch (LuaException e)
+        blocked = e.msg.canFind("module blocked");
+    assert(blocked);
 
     auto toLuaEnum = toLua!Color(L);
     assert(toLuaEnum.get!int("red") == 0);
@@ -2554,5 +2599,37 @@ unittest
         L.openLibraries(LuaLib.string);
     catch (LuaException e)
         threw = e.msg.canFind("library blocked");
+    assert(threw);
+}
+
+unittest
+{
+    // AA conversion protects lua_next: a codec that removes the current key
+    // turns the next step into a LuaException instead of a longjmp out of D.
+    auto L = LuaState.open();
+    L.doString(`
+        aaTable = { a = 1, b = 2, c = 3 }
+        function remove_key(k)
+            rawset(aaTable, k, nil)
+            -- Force a rehash so the dead key node is discarded.
+            for i = 1, 100 do aaTable['x' .. i] = i end
+        end
+    `);
+
+    registerCodec!MutatingKey(L, LuaCodec!MutatingKey(
+        (LuaState s, ref const MutatingKey v) { pushTo(s, v.name); },
+        (LuaState s, int idx) {
+            auto name = popFrom!string(s, idx);
+            s.getGlobal!LuaFunction("remove_key").call(name);
+            return MutatingKey(name);
+        },
+        (LuaState s, int idx) => lua_type(s.handle, idx) == LUA_TSTRING));
+    scope(exit) unregisterCodec!MutatingKey(L);
+
+    bool threw;
+    try
+        L.getGlobal!(int[MutatingKey])("aaTable");
+    catch (LuaException e)
+        threw = e.msg.canFind("invalid key to 'next'");
     assert(threw);
 }

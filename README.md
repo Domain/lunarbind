@@ -175,14 +175,18 @@ state still succeeds.
 metamethod that raises becomes a `LuaException` instead of an unprotected Lua
 error. Tables without those metamethods take the direct `lua_gettable`/
 `lua_settable` path. `set` rejects nil and NaN keys before calling Lua;
-`setUnchecked` skips all of these checks.
+`setUnchecked` skips all of these checks. `LuaModule.set` and its `add*`
+methods use the same protected assignment, and `LuaTable.setWeakness` writes
+`__mode` with a raw set so a metatable's `__newindex` cannot intercept it.
 
 `LuaTable.opApply` also runs each `lua_next` step under `pcall`. If the loop
 body mutates the table in a way that invalidates the current key, Lua's
 `invalid key to 'next'` error becomes a `LuaException` instead of aborting the
 process. Keys are copied into `LuaValue` between steps, so the traversal holds
 no Lua stack reference to them; modifying existing entries is safe, while
-adding new keys may raise that exception.
+adding new keys may raise that exception. Associative-array conversion
+(`popFrom!(V[K])`) uses the same protected iteration, so a codec that removes
+the current key produces a `LuaException` too.
 
 Global access follows the same rule. `LuaState.getGlobal` runs a `_G` `__index`
 metamethod under `pcall`, and `LuaState.setGlobalChecked` does the same for
@@ -585,6 +589,12 @@ stack, resumes it, and copies yielded or final values into D. `LuaState.wrap`
 preserves the thread when called from a Lua callback, while `mainState()` returns
 a handle to the owner state; registry references always push through the main
 state so they cannot disturb a suspended coroutine.
+
+`LuaState` and every handle derived from it are single-threaded. Lua states are
+not internally synchronized, and `StateCore` tracks reference counts with a
+plain `size_t`, so sharing a state or a handle between threads without external
+locking is a data race. Use one state per thread, or guard all access with your
+own lock.
 
 D class userdata are rooted in the D GC. Because the GC root set is process-wide
 and not reference-counted, `lunarbind` keeps its own per-object count: an object

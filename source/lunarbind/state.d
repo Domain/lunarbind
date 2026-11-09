@@ -519,19 +519,7 @@ struct LuaState
         lua_pushlstring(handle, name.ptr, name.length); // [value, globals, key]
         lua_pushvalue(handle, valueIndex);              // [value, globals, key, value]
         raw.remove(handle, valueIndex);                 // [globals, key, value]
-        auto tableIndex = top() - 2;
-        if (hasMetamethod(this, tableIndex, "__newindex"))
-        {
-            pushCFunction(handle, &setTableThunk);      // [globals, key, value, thunk]
-            raw.insert(handle, tableIndex);             // [thunk, globals, key, value]
-            auto status = raw.pcall(handle, 3, 0, 0);
-            if (status != LUA_OK)
-                throw tableError(this, status);
-        }
-        else
-        {
-            lua_settable(handle, tableIndex);
-        }
+        setTableEntry(this, top() - 2);
     }
 
     /// Push `value` and assign it to a global with `__newindex` protection.
@@ -556,18 +544,7 @@ struct LuaState
         raw.pushGlobalTable(handle);
         auto tableIndex = top();
         lua_pushlstring(handle, name.ptr, name.length);
-        if (hasMetamethod(this, tableIndex, "__index"))
-        {
-            pushCFunction(handle, &getTableThunk);      // [globals, key, thunk]
-            raw.insert(handle, tableIndex);             // [thunk, globals, key]
-            auto status = raw.pcall(handle, 2, 1, 0);
-            if (status != LUA_OK)
-                throw tableError(this, status);
-        }
-        else
-        {
-            lua_gettable(handle, tableIndex);
-        }
+        getTableEntry(this, tableIndex);
         return popFrom!T(this, -1);
     }
 
@@ -929,10 +906,51 @@ package extern(C) int setTableThunk(lua_State* L) nothrow
     return 0;
 }
 
+package extern(C) int nextThunk(lua_State* L) nothrow
+{
+    // [table, key] -> [key, value], or no results at the end.
+    return lua_next(L, 1) != 0 ? 2 : 0;
+}
+
 package LuaException tableError(LuaState s, int status)
 {
     auto msg = s.errorText(-1);
     return new LuaException(msg, cast(LuaStatus) status, msg);
+}
+
+// Replace the top key with `table[key]`, where the stack ends in
+// [.., table, key]. Runs `__index` under pcall when the table has one.
+package void getTableEntry(LuaState s, int tableIndex)
+{
+    tableIndex = raw.absIndex(s.handle, tableIndex);
+    if (hasMetamethod(s, tableIndex, "__index"))
+    {
+        pushCFunction(s.handle, &getTableThunk); // [.., table, key, thunk]
+        raw.insert(s.handle, tableIndex);        // [thunk, table, key]
+        auto status = raw.pcall(s.handle, 2, 1, 0);
+        if (status != LUA_OK)
+            throw tableError(s, status);
+    }
+    else
+        lua_gettable(s.handle, tableIndex);
+}
+
+// Assign `table[key] = value`, where the stack ends in
+// [.., table, key, value]. Pops key and value. Runs `__newindex` under pcall
+// when the table has one.
+package void setTableEntry(LuaState s, int tableIndex)
+{
+    tableIndex = raw.absIndex(s.handle, tableIndex);
+    if (hasMetamethod(s, tableIndex, "__newindex"))
+    {
+        pushCFunction(s.handle, &setTableThunk); // [.., table, key, value, thunk]
+        raw.insert(s.handle, tableIndex);        // [thunk, table, key, value]
+        auto status = raw.pcall(s.handle, 3, 0, 0);
+        if (status != LUA_OK)
+            throw tableError(s, status);
+    }
+    else
+        lua_settable(s.handle, tableIndex);
 }
 
 // ---------------------------------------------------------------------------

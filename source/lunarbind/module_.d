@@ -6,7 +6,6 @@
 module lunarbind.module_;
 
 import lunarbind.raw;
-static import raw = lunarbind.raw;
 import lunarbind.state;
 import lunarbind.conv : pushTo;
 import lunarbind.dispatch : fillCallArgs, isRawLuaFunction, luaArgumentTypes,
@@ -313,9 +312,12 @@ struct LuaModule
     private void setTop(string name)
     {
         // The value to store is on top of the stack.
-        _table.push();                              // [value, table]
-        lua_pushvalue(_state.handle, -2);           // [value, table, value]
-        lua_setfield(_state.handle, -2, toStringz(name));
-        raw.pop(_state.handle, 2);
+        auto valueIndex = _state.top();
+        scope(exit) _state.setTop(valueIndex - 1);
+        _table.push();                                          // [value, table]
+        auto tableIndex = valueIndex + 1;
+        lua_pushlstring(_state.handle, name.ptr, name.length);  // [value, table, key]
+        lua_pushvalue(_state.handle, valueIndex);               // [value, table, key, value]
+        setTableEntry(_state, tableIndex);
     }
 }

@@ -44,8 +44,9 @@ struct LuaTable
     // without `__index`/`__newindex` cannot raise from get/set, so the common
     // path stays a direct lua_gettable/lua_settable call.
     //
-    // `hasMetamethod`, `tableError`, `getTableThunk` and `setTableThunk` are
-    // shared with LuaState globals access and live in lunarbind.state.
+    // `hasMetamethod`, `tableError`, `getTableThunk`, `setTableThunk` and
+    // `nextThunk` are shared with LuaState globals access and live in
+    // lunarbind.state.
 
     // Nil and NaN keys make lua_settable raise; validate them before the call.
     private static void checkSettableKey(LuaState s, int idx)
@@ -59,12 +60,6 @@ struct LuaTable
             if (n != n)
                 throw new LuaArgumentException("table index is NaN");
         }
-    }
-
-    private extern(C) static int nextThunk(lua_State* L) nothrow
-    {
-        // [table, key] -> [key, value], or no results at the end.
-        return lua_next(L, 1) != 0 ? 2 : 0;
     }
 
     /// Create a fresh, empty table.
@@ -108,8 +103,11 @@ struct LuaTable
         }
 
         auto mode = weaknessMode(weakness);
+        // Use a raw set: assigning `__mode` must not run a metatable's
+        // `__newindex` metamethod (which could raise).
+        lua_pushlstring(s.handle, "__mode".ptr, 6);
         lua_pushlstring(s.handle, mode.ptr, mode.length);
-        lua_setfield(s.handle, -2, "__mode");    // [table, metatable]
+        lua_rawset(s.handle, -3);                // [table, metatable]
     }
 
     LuaState state() @nogc nothrow { return _ref.state(); }
@@ -131,16 +129,7 @@ struct LuaTable
         requireTable(s);
         auto tableIndex = s.top();
         pushTo(s, key);
-        if (hasMetamethod(s, tableIndex, "__index"))
-        {
-            pushCFunction(s.handle, &getTableThunk); // [table, key, thunk]
-            raw.insert(s.handle, tableIndex);        // [thunk, table, key]
-            auto status = raw.pcall(s.handle, 2, 1, 0);
-            if (status != LUA_OK)
-                throw tableError(s, status);
-            return popFrom!T(s, -1);
-        }
-        lua_gettable(s.handle, -2);
+        getTableEntry(s, tableIndex);
         return popFrom!T(s, -1);
     }
 
@@ -154,18 +143,7 @@ struct LuaTable
         requireTable(s);
         auto tableIndex = s.top();
         pushTo(s, key);
-        if (hasMetamethod(s, tableIndex, "__index"))
-        {
-            pushCFunction(s.handle, &getTableThunk);
-            raw.insert(s.handle, tableIndex);
-            auto status = raw.pcall(s.handle, 2, 1, 0);
-            if (status != LUA_OK)
-                throw tableError(s, status);
-        }
-        else
-        {
-            lua_gettable(s.handle, -2);
-        }
+        getTableEntry(s, tableIndex);
         if (lua_type(s.handle, -1) == LUA_TNIL)
         {
             found = false;
@@ -191,16 +169,7 @@ struct LuaTable
         pushTo(s, key);
         checkSettableKey(s, -1);
         pushTo(s, value);
-        if (hasMetamethod(s, tableIndex, "__newindex"))
-        {
-            pushCFunction(s.handle, &setTableThunk); // [table, key, value, thunk]
-            raw.insert(s.handle, tableIndex);        // [thunk, table, key, value]
-            auto status = raw.pcall(s.handle, 3, 0, 0);
-            if (status != LUA_OK)
-                throw tableError(s, status);
-            return;
-        }
-        lua_settable(s.handle, -3);
+        setTableEntry(s, tableIndex);
     }
 
     /// Set a field/entry without checking that the receiver is a table.

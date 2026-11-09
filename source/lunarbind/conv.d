@@ -338,11 +338,26 @@ T popFrom(T)(LuaState L, int idx)
         alias V = ValueType!T;
         T result;
         auto tableIdx = L.absIndex(idx);
-        lua_pushnil(h);
-        while (lua_next(h, tableIdx) != 0)
+        auto baseTop = L.top();
+        LuaValue currentKey; // nil starts the traversal
+        while (true)
         {
-            scope(exit) L.pop(1);
-            result[popFrom!K(L, -2)] = popFrom!V(L, -1);
+            // Restore the stack after each step, including when the key or
+            // value conversion throws.
+            scope(exit) L.setTop(baseTop);
+
+            pushCFunction(h, &nextThunk);       // [.., thunk]
+            lua_pushvalue(h, tableIdx);         // [.., thunk, table]
+            currentKey.push(L);                 // [.., thunk, table, key]
+            auto status = raw.pcall(h, 2, LUA_MULTRET, 0);
+            if (status != LUA_OK)
+                throw tableError(L, status);
+            if (L.top() == baseTop)
+                break;
+
+            auto key = LuaValue.fromStack(L, baseTop + 1);
+            result[popFrom!K(L, baseTop + 1)] = popFrom!V(L, baseTop + 2);
+            currentKey = key;
         }
         return result;
     }
