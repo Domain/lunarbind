@@ -909,7 +909,14 @@ private extern(C) int structGc(S)(lua_State* L) nothrow
     {
         auto p = lua_touserdata(L, 1);
         if (p !is null)
-            GC.removeRange(p, S.sizeof);
+        {
+            // Newer druntime tracks range sizes internally and removed the
+            // size argument from removeRange.
+            static if (__traits(compiles, GC.removeRange(p, S.sizeof)))
+                GC.removeRange(p, S.sizeof);
+            else
+                GC.removeRange(p);
+        }
     }
     return 0;
 }
