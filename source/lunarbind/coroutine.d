@@ -67,7 +67,9 @@ struct LuaThread
     /// Lua status of the thread (fresh/complete, suspended, or an error).
     LuaStatus status() @nogc nothrow
     {
-        return _thread is null ? LuaStatus.ok : cast(LuaStatus) lua_status(_thread);
+        if (_thread is null || !_ref.state().isOpen())
+            return LuaStatus.ok;
+        return cast(LuaStatus) lua_status(_thread);
     }
 
     /// True when the coroutine is suspended at a `yield`.
@@ -83,6 +85,9 @@ struct LuaThread
     {
         if (_thread is null)
             throw new LuaStateException("coroutine is not initialized");
+        if (!state().isOpen())
+            throw new LuaStateException(
+                "cannot resume a coroutine from a closed Lua state");
 
         auto threadState = LuaState.wrap(_thread);
         auto base = lua_gettop(_thread);

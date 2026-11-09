@@ -573,10 +573,11 @@ silently reading the wrong registry.
 
 After the state is closed, `LuaState.handle` returns null and checked operations
 (`loadString`, `eval`, `globals`, `LuaTable.get`/`set`/`opApply`,
-`LuaFunction.call`, `LuaRef.type`) throw `LuaStateException`. Default-initialized
-handles behave the same way instead of tripping a `RefCounted` assertion or
-dereferencing a null state. The `@nogc nothrow` stack primitives, `LuaTable.setUnchecked`
-and `LuaValue.pushUnchecked` stay raw: they assume a live state and valid handle.
+`LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`) throw
+`LuaStateException`. Default-initialized handles behave the same way instead of
+tripping a `RefCounted` assertion or dereferencing a null state. The
+`@nogc nothrow` stack primitives, `LuaTable.setUnchecked` and
+`LuaValue.pushUnchecked` stay raw: they assume a live state and valid handle.
 
 A `LuaThread` handle addresses one coroutine's stack while sharing the owner's
 `StateCore` and registry. `LuaThread.resume` pushes arguments on the coroutine

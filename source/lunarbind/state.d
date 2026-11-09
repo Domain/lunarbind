@@ -770,6 +770,7 @@ struct LuaRef
     /// Copy the value at `idx` into the registry and return a reference.
     static LuaRef make(LuaState state, int idx)
     {
+        state.ensureOpen();
         state.pushValue(idx);
         auto ref_ = luaL_ref(state.handle, LUA_REGISTRYINDEX);
         return LuaRef(state, ref_);

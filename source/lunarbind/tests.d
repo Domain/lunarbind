@@ -2386,6 +2386,7 @@ unittest
     expectClosed({ ref_.type(); }, "ref type");
     expectClosed({ ref_.asValue(); }, "ref value");
     expectClosed({ ref_.pushInto(L); }, "ref pushInto");
+    expectClosed({ LuaRef.make(L, -1); }, "ref make");
 }
 
 unittest
