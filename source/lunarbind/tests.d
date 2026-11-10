@@ -839,6 +839,15 @@ unittest
     L.setGlobal("greeting", "hello");
     assert(L.getGlobal!string("greeting") == "hello");
 
+    // Mutable char arrays round-trip through Lua strings as owned copies.
+    auto mutableText = "mutable".dup;
+    L.setGlobal("mutable_text", mutableText);
+    auto copiedText = L.getGlobal!(char[])("mutable_text");
+    assert(copiedText == "mutable");
+    assert(copiedText.ptr !is mutableText.ptr);
+    copiedText[0] = 'M';
+    assert(L.getGlobal!string("mutable_text") == "mutable");
+
     // 64-bit integers must survive conversion without truncation to 32 bits
     // (regression: lua_tointegerx was declared as returning int).
     L.setGlobal("large", 500001500000L);
@@ -847,6 +856,35 @@ unittest
     auto largeSum = L.getGlobal!LuaFunction("large_sum");
     assert(largeSum.call!long(1_000_000) == 500001500000L);
     assert(largeSum.call!double(1_000_000) == 500001500000.0);
+
+    // Narrow integer conversions reject out-of-range values instead of
+    // silently truncating.
+    L.setGlobal("wide", 5_000_000_000L);
+    bool wideThrew;
+    try
+        L.getGlobal!int("wide");
+    catch (LuaArgumentException e)
+        wideThrew = e.msg.canFind("out of range");
+    assert(wideThrew);
+
+    L.setGlobal("uint_value", 4_000_000_000L);
+    assert(L.getGlobal!uint("uint_value") == 4_000_000_000u);
+
+    L.setGlobal("negative", -1);
+    bool unsignedThrew;
+    try
+        L.getGlobal!uint("negative");
+    catch (LuaArgumentException e)
+        unsignedThrew = e.msg.canFind("out of range");
+    assert(unsignedThrew);
+
+    bool pushThrew;
+    try
+        L.setGlobal("too_big", ulong.max);
+    catch (LuaArgumentException e)
+        pushThrew = e.msg.canFind("out of range");
+    assert(pushThrew);
+    assert(L.getGlobal!LuaValue("too_big").isNil());
 
     // tables
     auto g = L.globals();

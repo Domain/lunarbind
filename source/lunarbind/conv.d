@@ -17,7 +17,7 @@ import lunarbind.function_ : LuaFunction;
 
 import std.traits : isIntegral, isFloatingPoint, isDynamicArray,
                     isAssociativeArray, isSomeString, KeyType, ValueType, isPointer,
-                    isInstanceOf, Unqual, OriginalType;
+                    isInstanceOf, Unqual, OriginalType, isUnsigned;
 import std.typecons : Nullable;
 import std.meta : AliasSeq;
 
@@ -162,6 +162,21 @@ void pushTo(T)(LuaState L, auto ref T value)
     }
     else static if (isIntegral!T)
     {
+        // Values wider than lua_Integer (or unsigned values of the same
+        // width) can wrap when cast. Reject them before pushing so Lua never
+        // observes a truncated integer.
+        static if (isUnsigned!T && T.sizeof >= lua_Integer.sizeof)
+        {
+            if (value > cast(T) lua_Integer.max)
+                throw new LuaArgumentException(
+                    T.stringof ~ " value is out of range for a Lua integer");
+        }
+        else static if (!isUnsigned!T && T.sizeof > lua_Integer.sizeof)
+        {
+            if (value < lua_Integer.min || value > lua_Integer.max)
+                throw new LuaArgumentException(
+                    T.stringof ~ " value is out of range for a Lua integer");
+        }
         lua_pushinteger(L.handle, cast(lua_Integer) value);
     }
     else static if (isFloatingPoint!T)
@@ -258,6 +273,19 @@ T popFrom(T)(LuaState L, int idx)
         auto p = lua_tolstring(h, idx, &len);
         return p[0 .. len].idup;
     }
+    else static if (is(T == char[]))
+    {
+        // Mutable slices cannot alias Lua's immutable, GC-managed string
+        // storage, so return an owned copy.
+        auto t = lua_type(h, idx);
+        if (t == LUA_TNIL || t == LUA_TNONE)
+            return null;
+        if (t != LUA_TSTRING && t != LUA_TNUMBER)
+            throw new LuaTypeException("expected string, got " ~ L.typeName(idx));
+        size_t len;
+        auto p = lua_tolstring(h, idx, &len);
+        return p[0 .. len].dup;
+    }
     else static if (is(T : const(char)[]))
     {
         auto t = lua_type(h, idx);
@@ -279,11 +307,46 @@ T popFrom(T)(LuaState L, int idx)
     }
     else static if (isIntegral!T)
     {
+        import std.conv : to;
+
         int isnum = 0;
         auto v = raw.toIntegerX(h, idx, &isnum);
         if (!isnum)
             throw new LuaTypeException("expected integer, got " ~ L.typeName(idx));
-        return cast(T) v;
+
+        static if (is(T == lua_Integer))
+            return v;
+        else static if (isUnsigned!T)
+        {
+            static if (T.sizeof >= lua_Integer.sizeof)
+            {
+                if (v < 0)
+                    throw new LuaArgumentException(
+                        "integer " ~ to!string(v) ~ " is out of range for "
+                        ~ T.stringof);
+            }
+            else
+            {
+                if (v < 0 || cast(ulong) v > T.max)
+                    throw new LuaArgumentException(
+                        "integer " ~ to!string(v) ~ " is out of range for "
+                        ~ T.stringof);
+            }
+            return cast(T) v;
+        }
+        else
+        {
+            static if (T.sizeof >= lua_Integer.sizeof)
+                return cast(T) v;
+            else
+            {
+                if (v < T.min || v > T.max)
+                    throw new LuaArgumentException(
+                        "integer " ~ to!string(v) ~ " is out of range for "
+                        ~ T.stringof);
+                return cast(T) v;
+            }
+        }
     }
     else static if (isFloatingPoint!T)
     {

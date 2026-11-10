@@ -154,7 +154,8 @@ from real-time or `@nogc` code:
 - `LuaState` stack primitives (`top`, `setTop`, `pop`, `pushValue`,
   `absIndex`, `checkStack`, `typeOf`, `protectedCall`) and GC controls
 - `LuaState.push` for `bool`, integers, floating-point values, strings,
-  `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars
+  `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars (unsigned values
+  wider than `lua_Integer` are range-checked and may throw)
 - `LuaState.setGlobal` (keys are pushed as length-delimited strings; this is
   the raw path and does not protect a `_G` `__newindex` metamethod)
 - `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
@@ -166,9 +167,12 @@ from real-time or `@nogc` code:
 
 Checked conversions (`LuaTable.get`, `LuaState.getGlobal`, `LuaFunction.call`)
 throw typed D exceptions on conversion errors, which requires allocation; they
-are intentionally not `@nogc`. When you need a no-allocation path, validate
-with `typeOf` and read through the stack primitives, or use
-`LuaValue.pushUnchecked` after confirming state ownership yourself.
+are intentionally not `@nogc`. Integer conversions are range-checked: popping a
+Lua integer into a narrower or unsigned D type throws `LuaArgumentException`
+instead of truncating, and pushing an unsigned value above `lua_Integer.max` is
+rejected. When you need a no-allocation path, validate with `typeOf` and read
+through the stack primitives, or use `LuaValue.pushUnchecked` after confirming
+state ownership yourself.
 
 ## Error handling
 
