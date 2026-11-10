@@ -147,8 +147,8 @@ auto toLua(alias Symbol)(LuaState state, string name = luaNameOf!Symbol)
             return registerEnum!Symbol(state, name);
         else static if (is(Symbol == union))
             static assert(0,
-                          "lunarbind: toLua cannot bind the union type " ~ Symbol.stringof ~
-                          " yet; bind a value with toLua(L, value, name)");
+                          "lunarbind: toLua cannot bind the union type " ~ Symbol.stringof
+                          ~ "; register a codec and bind a value with toLua(L, value, name)");
         else
             static assert(0, "lunarbind: toLua does not support type " ~ Symbol.stringof);
     }

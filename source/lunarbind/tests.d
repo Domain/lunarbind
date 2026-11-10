@@ -541,6 +541,43 @@ struct Vec2
     double y;
 }
 
+// Unions have no default representation; the codec below maps one member.
+union CodecNumber
+{
+    int integer;
+    float floating;
+}
+
+struct CodecNumberCodec
+{
+    static void push(LuaState L, ref const CodecNumber value)
+    {
+        pushTo(L, value.integer);
+    }
+
+    static CodecNumber pop(LuaState L, int idx)
+    {
+        CodecNumber result;
+        result.integer = popFrom!int(L, idx);
+        return result;
+    }
+
+    static bool check(LuaState L, int idx)
+    {
+        return lua_type(L.handle, idx) == LUA_TNUMBER;
+    }
+}
+
+CodecNumber codecNumberRoundTrip(CodecNumber value)
+{
+    return value;
+}
+
+class HasUnionField
+{
+    CodecNumber number;
+}
+
 struct NamedValue
 {
     string name;
@@ -1469,6 +1506,49 @@ unittest
         codecRejected = true;
     }
     assert(codecRejected);
+
+    // Unions require an explicit codec. Without one, push and pop report the
+    // missing type instead of guessing an active member.
+    CodecNumber numberUnion;
+    numberUnion.integer = 21;
+    bool unionPushRejected;
+    try
+        L.setGlobal("raw_union", numberUnion);
+    catch (LuaArgumentException e)
+        unionPushRejected = e.msg.canFind("no codec registered for union");
+    assert(unionPushRejected);
+    assert(L.getGlobal!LuaValue("raw_union").isNil());
+
+    registerCodec!CodecNumber(L, LuaCodec!CodecNumber(
+        toDelegate(&CodecNumberCodec.push),
+        toDelegate(&CodecNumberCodec.pop),
+        toDelegate(&CodecNumberCodec.check)));
+    L.setGlobal("number_union", numberUnion);
+    assert(L.getGlobal!int("number_union") == 21);
+    assert(L.getGlobal!CodecNumber("number_union").integer == 21);
+
+    registerFunction!codecNumberRoundTrip(L, "codecNumberRoundTrip");
+    assert(asInt(L.eval("return codecNumberRoundTrip(42)")[0]) == 42);
+
+    // Class fields of union type use the same codec for reads and writes.
+    auto unionHolder = new HasUnionField;
+    unionHolder.number.integer = 5;
+    LuaClass!HasUnionField.setGlobal(L, "unionHolder", unionHolder);
+    auto unionFieldResult = L.eval("
+        assert(unionHolder.number == 5)
+        unionHolder.number = 8
+        return unionHolder.number
+    ");
+    assert(asInt(unionFieldResult[0]) == 8);
+    assert(unionHolder.number.integer == 8);
+
+    unregisterCodec!CodecNumber(L);
+    bool unionPopRejected;
+    try
+        L.getGlobal!CodecNumber("number_union");
+    catch (LuaArgumentException e)
+        unionPopRejected = e.msg.canFind("no codec registered for union");
+    assert(unionPopRejected);
 
     // Enums cross the boundary as their base integer values.
     L.setGlobal("color", Color.green);

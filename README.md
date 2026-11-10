@@ -473,6 +473,24 @@ registerCodec!Vec2(L, LuaCodec!Vec2(
 ));
 ```
 
+Unions have no default representation because the binder cannot know which
+member is active. Register a codec for the union before pushing, popping or
+binding it:
+
+```d
+union Number { int integer; float floating; }
+
+registerCodec!Number(L, LuaCodec!Number(
+    (LuaState L, ref const Number v) { pushTo(L, v.integer); },
+    (LuaState L, int idx) {
+        Number n;
+        n.integer = popFrom!int(L, idx);
+        return n;
+    },
+    (LuaState L, int idx) => lua_type(L.handle, idx) == LUA_TNUMBER
+));
+```
+
 The optional `check` predicate is also used when selecting between overloads.
 `samples/hello.d` is a runnable version.
 
@@ -670,7 +688,10 @@ representation and participate in overload selection through their `check`
 predicate.
 
 Not yet: automatic marshalling of D `...` declarations. C-style variadic
-arguments are handled through raw `lua_CFunction` callbacks (see above).
+arguments are handled through raw `lua_CFunction` callbacks (see above). D
+`union` types have no default representation; register a `LuaCodec` for the
+union before pushing, popping or binding it. A binding whose union parameter
+has no registered codec reports no matching overload.
 
 ## Roadmap
 

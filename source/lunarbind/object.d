@@ -97,7 +97,8 @@ private template isBindableType(T)
         || isDynamicArray!T
         || isAssociativeArray!T
         || isInstanceOf!(Nullable, T)
-        || is(Unqual!T == struct);
+        || is(Unqual!T == struct)
+        || is(Unqual!T == union);
 }
 
 private template isBindableReturn(T)
@@ -252,6 +253,12 @@ package bool luaArgMatches(T)(LuaState state, int idx)
         if (t != LUA_TUSERDATA)
             return false;
         return LuaStruct!S.isInstance(state, idx);
+    }
+    else static if (is(Unqual!T == union))
+    {
+        // Without a codec there is no way to interpret the Lua value.
+        alias U = Unqual!T;
+        return hasCodec!U(state) && codecMatches!U(state, idx);
     }
     else
         return false;

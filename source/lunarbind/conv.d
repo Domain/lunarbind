@@ -1,8 +1,9 @@
 /// Conversion policy: `pushTo!T` and `popFrom!T`.
 ///
 /// The design deliberately uses free-function templates instead of baking a
-/// giant `static if` chain into `LuaState`.  Future versions will also allow
-/// runtime-registered codecs for user types; object binding lives in
+/// giant `static if` chain into `LuaState`. Runtime-registered codecs
+/// (`registerCodec`) override the default representation for classes and
+/// structs, and are required for unions; object binding lives in
 /// `lunarbind.object`.
 module lunarbind.conv;
 
@@ -32,10 +33,11 @@ struct LuaString
 /// A user-defined conversion between a D type and a Lua value.
 ///
 /// Codecs are registered per `LuaState` and take precedence over the default
-/// `LuaClass!T`/`LuaStruct!T` representation for classes and structs. `push`
-/// writes a value onto the Lua stack, `pop` reads a value from `idx`, and the
-/// optional `check` predicate is used by overload resolution. Without `check`,
-/// any non-nil Lua value is accepted.
+/// `LuaClass!T`/`LuaStruct!T` representation for classes and structs. Unions
+/// have no default representation and can only cross the boundary through a
+/// registered codec. `push` writes a value onto the Lua stack, `pop` reads a
+/// value from `idx`, and the optional `check` predicate is used by overload
+/// resolution. Without `check`, any non-nil Lua value is accepted.
 struct LuaCodec(T)
 {
     alias Push = void delegate(LuaState, ref const T);
@@ -226,6 +228,21 @@ void pushTo(T)(LuaState L, auto ref T value)
             import lunarbind.object : LuaStruct;
             LuaStruct!S.push(L, cast(S) value);
         }
+    }
+    else static if (is(Unqual!T == union))
+    {
+        // Unions have no default Lua representation: their active member is
+        // not known to the binder, so a codec must define the mapping.
+        alias U = Unqual!T;
+        if (auto holder = codecFor!U(L))
+        {
+            auto copy = cast(U) value;
+            holder.codec.push(L, copy);
+        }
+        else
+            throw new LuaArgumentException(
+                "no codec registered for union " ~ U.stringof
+                ~ "; call registerCodec!" ~ U.stringof);
     }
     else
     {
@@ -440,6 +457,15 @@ T popFrom(T)(LuaState L, int idx)
             return cast(T) holder.codec.pop(L, idx);
         import lunarbind.object : LuaStruct;
         return cast(T) LuaStruct!S.get(L, idx);
+    }
+    else static if (is(Unqual!T == union))
+    {
+        alias U = Unqual!T;
+        if (auto holder = codecFor!U(L))
+            return cast(T) holder.codec.pop(L, idx);
+        throw new LuaArgumentException(
+            "no codec registered for union " ~ U.stringof
+            ~ "; call registerCodec!" ~ U.stringof);
     }
     else
     {
