@@ -1,7 +1,15 @@
-/// Public status/type/error types, independent of the C bindings.
+/// Public status/type/error types.
+///
+/// `LuaStatus` values follow the selected Lua version; the rest of the module
+/// is independent of the C API.
 module lunarbind.types;
 
+import lunarbind.raw : LUA_ERRERR, LUA_ERRFILE, LUA_ERRGCMM;
+
 /// Lua status codes (LUA_OK / LUA_YIELD / LUA_ERR*).
+///
+/// Values follow the selected Lua version: Lua 5.2/5.3 insert `errGcmm` and
+/// shift `errErr`/`errFile` by one.
 enum LuaStatus : int
 {
     ok        = 0,
@@ -9,7 +17,9 @@ enum LuaStatus : int
     errRun    = 2,
     errSyntax = 3,
     errMem    = 4,
-    errErr    = 5,
+    errGcmm   = LUA_ERRGCMM, // only raised by Lua 5.2/5.3
+    errErr    = LUA_ERRERR,
+    errFile   = LUA_ERRFILE, // luaL_loadfile could not open/read the file
 }
 
 /// Lua value kinds. `integer` is only reported on Lua 5.3+.

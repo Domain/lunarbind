@@ -575,26 +575,34 @@ struct LuaState
         return LuaFunction(LuaRef.make(this, -1));
     }
 
-    /// Evaluate a chunk and return all its results. Throws on Lua errors.
-    LuaValue[] eval(string code, string name = "<string>")
+    /// Load a chunk from a file without running it.
+    ///
+    /// The path is passed to `luaL_loadfile`, so the active Lua version's file
+    /// loading rules apply. A missing or unreadable file raises `LuaException`
+    /// with `status == LuaStatus.errFile`.
+    auto loadFile(string path)
     {
-        import lunarbind.value : LuaValue;
+        import lunarbind.function_ : LuaFunction;
         ensureOpen();
         StackGuard guard = StackGuard(this);
-
-        const base = top();
-        auto status = raw.loadString(handle, code, toStringz(name));
+        auto status = luaL_loadfile(handle, toStringz(path));
         if (status != LUA_OK)
         {
             auto msg = errorText(-1);
             throw new LuaException(msg, cast(LuaStatus) status);
         }
+        return LuaFunction(LuaRef.make(this, -1));
+    }
 
-        // Insert a traceback message handler below the chunk.
+    // Run the chunk on top of the stack, where `base` was the stack top before
+    // the chunk was loaded. The traceback handler is inserted below it so Lua
+    // errors include a stack trace.
+    private LuaValue[] runChunk(int base)
+    {
         pushCFunction(handle, &luaMessageHandler);
         insert(handle, base + 1);
 
-        status = raw.pcall(handle, 0, LUA_MULTRET, base + 1);
+        auto status = raw.pcall(handle, 0, LUA_MULTRET, base + 1);
         remove(handle, base + 1);
 
         if (status != LUA_OK)
@@ -609,10 +617,50 @@ struct LuaState
         return result;
     }
 
+    /// Evaluate a chunk and return all its results. Throws on Lua errors.
+    LuaValue[] eval(string code, string name = "<string>")
+    {
+        ensureOpen();
+        StackGuard guard = StackGuard(this);
+
+        const base = top();
+        auto status = raw.loadString(handle, code, toStringz(name));
+        if (status != LUA_OK)
+        {
+            auto msg = errorText(-1);
+            throw new LuaException(msg, cast(LuaStatus) status);
+        }
+
+        return runChunk(base);
+    }
+
     /// Evaluate a chunk, discarding its results.
     void doString(string code, string name = "<string>")
     {
         eval(code, name);
+    }
+
+    /// Evaluate a file and return all its results. Throws on Lua errors.
+    LuaValue[] evalFile(string path)
+    {
+        ensureOpen();
+        StackGuard guard = StackGuard(this);
+
+        const base = top();
+        auto status = luaL_loadfile(handle, toStringz(path));
+        if (status != LUA_OK)
+        {
+            auto msg = errorText(-1);
+            throw new LuaException(msg, cast(LuaStatus) status);
+        }
+
+        return runChunk(base);
+    }
+
+    /// Evaluate a file, discarding its results.
+    void doFile(string path)
+    {
+        evalFile(path);
     }
 
     // -- protected call ------------------------------------------------------

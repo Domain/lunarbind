@@ -8,7 +8,9 @@ import lunarbind.rawfixture;
 
 import std.algorithm.searching : canFind, startsWith;
 import std.conv : to;
+import std.file : remove, tempDir, write;
 import std.functional : toDelegate;
+import std.path : buildPath;
 import std.string : indexOf;
 import std.typecons : Nullable, Tuple, tuple;
 
@@ -945,6 +947,37 @@ unittest
 
     auto bound = mul.bind!(int, int, int)();
     assert(bound(2, 3) == 6);
+
+    // File loading mirrors loadString/eval and reports missing files with
+    // LuaStatus.errFile.
+    auto scriptPath = buildPath(tempDir(), "lunarbind-load-file-test.lua");
+    write(scriptPath, "return 6 * 7, 'file'\n");
+    scope(exit) remove(scriptPath);
+
+    auto script = L.loadFile(scriptPath);
+    auto fileResults = script.call!(Tuple!(int, string))();
+    assert(fileResults[0] == 42);
+    assert(fileResults[1] == "file");
+
+    auto evalResults = L.evalFile(scriptPath);
+    assert(asInt(evalResults[0]) == 42);
+    assert(evalResults[1].stringValue == "file");
+
+    L.doFile(scriptPath);
+
+    bool missingThrew;
+    LuaStatus missingStatus;
+    string missingMessage;
+    try
+        L.loadFile(buildPath(tempDir(), "lunarbind-missing-file.lua"));
+    catch (LuaException e)
+    {
+        missingThrew = e.status == LuaStatus.errFile;
+        missingStatus = e.status;
+        missingMessage = e.msg;
+    }
+    assert(missingThrew,
+           "status=" ~ to!string(cast(int) missingStatus) ~ " msg=" ~ missingMessage);
 
     // Coroutines resume across yields and expose yielded/final values.
     auto threadFunction = L.eval("

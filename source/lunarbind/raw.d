@@ -78,7 +78,20 @@ enum int LUA_YIELD = 1;
 enum int LUA_ERRRUN = 2;
 enum int LUA_ERRSYNTAX = 3;
 enum int LUA_ERRMEM = 4;
-enum int LUA_ERRERR = 5;
+
+// Lua 5.2/5.3 insert LUA_ERRGCMM, shifting LUA_ERRERR and LUA_ERRFILE.
+static if (LUA_VERSION_NUM == 502 || LUA_VERSION_NUM == 503)
+{
+    enum int LUA_ERRGCMM = 5;
+    enum int LUA_ERRERR = 6;
+    enum int LUA_ERRFILE = 7;
+}
+else
+{
+    enum int LUA_ERRGCMM = 5; // not produced by these versions
+    enum int LUA_ERRERR = 5;
+    enum int LUA_ERRFILE = 6;
+}
 
 enum int LUA_OPEQ = 0;
 enum int LUA_OPLT = 1;

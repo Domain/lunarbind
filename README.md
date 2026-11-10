@@ -134,6 +134,18 @@ and step-multiplier setters return the previous value. On Lua 5.5 the same
 operations map to `LUA_GCPARAM`; on earlier versions they map to
 `LUA_GCSETPAUSE` / `LUA_GCSETSTEPMUL`.
 
+Chunks can be loaded from strings or files:
+
+```d
+auto chunk = L.loadFile("scripts/init.lua");   // LuaFunction, not run
+auto results = L.evalFile("scripts/init.lua"); // run and collect results
+L.doFile("scripts/init.lua");                  // run and discard results
+```
+
+`loadString`, `eval` and `doString` are the string equivalents. A missing or
+unreadable file raises `LuaException` with `LuaStatus.errFile`; syntax errors
+use `LuaStatus.errSyntax`.
+
 ## Allocation-free fast paths
 
 Primitive stack, table and state operations are `@nogc`, so they can be used
@@ -576,7 +588,7 @@ reference into a different Lua state throws `LuaStateException` instead of
 silently reading the wrong registry.
 
 After the state is closed, `LuaState.handle` returns null and checked operations
-(`loadString`, `eval`, `globals`, `LuaTable.get`/`set`/`opApply`,
+(`loadString`, `loadFile`, `eval`, `evalFile`, `doFile`, `globals`, `LuaTable.get`/`set`/`opApply`,
 `LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`) throw
 `LuaStateException`. Default-initialized handles behave the same way instead of
 tripping a `RefCounted` assertion or dereferencing a null state. The
