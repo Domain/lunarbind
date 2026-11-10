@@ -793,10 +793,21 @@ struct LuaRef
     }
 
     /// Copy the value at `idx` into the registry and return a reference.
+    ///
+    /// `idx` must address a value currently on the stack. Invalid indices throw
+    /// `LuaArgumentException` instead of silently referencing the stack top.
     static LuaRef make(LuaState state, int idx)
     {
+        import std.conv : to;
+
         state.ensureOpen();
-        state.pushValue(idx);
+        auto abs = raw.absIndex(state.handle, idx);
+        auto top = lua_gettop(state.handle);
+        if (abs < 1 || abs > top)
+            throw new LuaArgumentException(
+                "LuaRef.make: index " ~ to!string(idx)
+                ~ " does not address a stack value");
+        state.pushValue(abs);
         auto ref_ = luaL_ref(state.handle, LUA_REGISTRYINDEX);
         return LuaRef(state, ref_);
     }

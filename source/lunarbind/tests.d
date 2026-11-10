@@ -886,6 +886,14 @@ unittest
     assert(pushThrew);
     assert(L.getGlobal!LuaValue("too_big").isNil());
 
+    // Registry references must come from a live stack slot.
+    bool invalidRefThrew;
+    try
+        LuaRef.make(L, L.top() + 1);
+    catch (LuaArgumentException e)
+        invalidRefThrew = e.msg.canFind("stack value");
+    assert(invalidRefThrew);
+
     // tables
     auto g = L.globals();
     g["name"] = "lunarbind";
@@ -1034,6 +1042,17 @@ unittest
     assert(finalValues.length == 1);
     assert(asInt(finalValues[0]) == 6);
     assert(!thread.isSuspended());
+
+    // Reference-valued LuaValue arguments are pushed onto the coroutine's
+    // stack, not the main state's stack.
+    auto argumentThread = LuaThread.create(
+        L.loadString("return function(t) return t.value end")
+         .call!LuaFunction());
+    auto argumentTable = LuaTable.create(L);
+    argumentTable["value"] = 99;
+    auto tableValues = argumentThread.resume(argumentTable.ref_.asValue());
+    assert(tableValues.length == 1);
+    assert(asInt(tableValues[0]) == 99);
 
     // Coroutine errors surface as LuaException, not as yielded values.
     auto errorThread = LuaThread.create(L.loadString("error('boom')"));
