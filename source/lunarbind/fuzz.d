@@ -32,6 +32,12 @@ private struct FuzzPoint
     int y;
 }
 
+private struct FuzzNamed
+{
+    string name;
+    int value;
+}
+
 unittest
 {
     enum iterations = 500;
@@ -46,9 +52,11 @@ unittest
     auto add = L.loadString("return function(a, b) return a + b end")
         .call!LuaFunction();
 
+    auto fuzzModule = LuaModule.create(L);
+
     foreach (i; 0 .. iterations)
     {
-        switch (uniform(0, 10, rng))
+        switch (uniform(0, 13, rng))
         {
             case 0:
             {
@@ -144,6 +152,41 @@ unittest
                 auto value = uniform(-4_000_000_000_000L, 4_000_000_000_000L, rng);
                 L.setGlobal("fuzz_value", value);
                 assert(L.getGlobal!long("fuzz_value") == value);
+                break;
+            }
+            case 10:
+            {
+                auto count = uniform(0, 8, rng);
+                int[string] expected;
+                foreach (j; 0 .. count)
+                {
+                    char[] key;
+                    foreach (_; 0 .. uniform(0, 8, rng))
+                        key ~= cast(char) uniform('a', 'z' + 1, rng);
+                    expected[key.idup] = uniform(-1_000, 1_000, rng);
+                }
+                L.setGlobal("fuzz_aa", expected);
+                assert(L.getGlobal!(int[string])("fuzz_aa") == expected);
+                break;
+            }
+            case 11:
+            {
+                char[] name;
+                foreach (_; 0 .. uniform(0, 16, rng))
+                    name ~= cast(char) uniform('a', 'z' + 1, rng);
+                auto named = FuzzNamed(name.idup,
+                                       uniform(-1_000, 1_000, rng));
+                LuaStruct!FuzzNamed.setGlobal(L, "fuzz_named", named);
+                auto back = LuaStruct!FuzzNamed.getGlobal(L, "fuzz_named");
+                assert(back.name == named.name);
+                assert(back.value == named.value);
+                break;
+            }
+            case 12:
+            {
+                auto value = uniform(-1_000, 1_000, rng);
+                fuzzModule.set("value", value);
+                assert(fuzzModule.table().get!int("value") == value);
                 break;
             }
             default:

@@ -601,7 +601,10 @@ and not reference-counted, `lunarbind` keeps its own per-object count: an object
 exposed in two Lua states (or through two class views) is unrooted only when the
 last userdata is finalized. Each class metatable also owns a weak-valued
 identity table, so pushing the same D object again reuses the existing userdata
-while Lua still has it.
+while Lua still has it. Struct boxes live in Lua-allocated memory, which the D
+GC does not scan; when the struct contains GC-managed fields (strings, arrays,
+class references, delegates), the box is registered as a GC range while Lua
+owns it and unregistered from `__gc`.
 
 Goals and non-goals:
 

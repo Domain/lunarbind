@@ -539,6 +539,12 @@ struct Vec2
     double y;
 }
 
+struct NamedValue
+{
+    string name;
+    int value;
+}
+
 struct Vec2Codec
 {
     static void push(LuaState L, ref const Vec2 value)
@@ -2632,4 +2638,28 @@ unittest
     catch (LuaException e)
         threw = e.msg.canFind("invalid key to 'next'");
     assert(threw);
+}
+
+unittest
+{
+    // Structs with GC-managed fields register their Lua-owned box as a GC
+    // range and remove it again from __gc. This exercises both the rooting
+    // path and the druntime-compatible removeRange call.
+    auto L = LuaState.open();
+    auto original = NamedValue("lunarbind".idup, 42);
+    LuaStruct!NamedValue.setGlobal(L, "named_value", original);
+
+    auto back = LuaStruct!NamedValue.getGlobal(L, "named_value");
+    assert(back.name == original.name);
+    assert(back.value == original.value);
+
+    // Replace the global and collect so the old box's __gc handler runs.
+    LuaStruct!NamedValue.setGlobal(L, "named_value",
+                                   NamedValue("replacement".idup, 7));
+    L.gcCollect();
+    L.gcCollect();
+
+    auto latest = LuaStruct!NamedValue.getGlobal(L, "named_value");
+    assert(latest.name == "replacement");
+    assert(latest.value == 7);
 }
