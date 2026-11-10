@@ -115,6 +115,8 @@ package void pushFunctionSet(alias Parent, string member)(LuaState state)
 /// Filtering and overload rules are identical to `registerModule`.
 LuaTable moduleTable(alias Module)(LuaState state)
 {
+    state.ensureOpen();
+    StackGuard guard = StackGuard(state);
     lua_createtable(state.handle, 0, 0);
     static foreach (member; __traits(allMembers, Module))
     {{
@@ -221,11 +223,16 @@ struct LuaModule
     LuaState state() { return _state; }
 
     /// Push the module table onto the Lua stack.
-    void push() { _table.push(); }
+    void push()
+    {
+        _state.ensureOpen();
+        _table.push();
+    }
 
     /// Expose the module as a global table.
     LuaTable setGlobal(string name)
     {
+        _state.ensureOpen();
         _table.push();
         _state.setGlobalChecked(name);
         return _table;
@@ -234,6 +241,9 @@ struct LuaModule
     /// Set a field to a runtime value.
     LuaModule set(T)(string name, auto ref T value)
     {
+        _state.ensureOpen();
+        auto savedTop = _state.top();
+        scope(failure) _state.setTop(savedTop);
         pushTo(_state, value);
         setTop(name);
         return this;
@@ -242,6 +252,7 @@ struct LuaModule
     /// Add a function or overload set.
     LuaModule addFunction(alias Symbol)(string name = luaNameOf!Symbol)
     {
+        _state.ensureOpen();
         static if (globalOverloadCount!Symbol > 1)
             pushFunctionSet!(__traits(parent, Symbol),
                              __traits(identifier, Symbol))(_state);
@@ -264,6 +275,7 @@ struct LuaModule
     {
         static assert(is(T == class),
                       "lunarbind: addClass requires a class type");
+        _state.ensureOpen();
         auto table = LuaClass!T.createTable(_state);
         table.push();
         setTop(name);
@@ -275,6 +287,7 @@ struct LuaModule
     {
         static assert(is(S == struct),
                       "lunarbind: addStruct requires a struct type");
+        _state.ensureOpen();
         auto table = LuaStruct!S.createTable(_state);
         table.push();
         setTop(name);
@@ -286,6 +299,7 @@ struct LuaModule
     {
         static assert(is(E == enum),
                       "lunarbind: addEnum requires an enum type");
+        _state.ensureOpen();
         auto table = enumTable!E(_state);
         table.push();
         setTop(name);
@@ -295,6 +309,7 @@ struct LuaModule
     /// Add every exported function of `Module` as a nested table.
     LuaModule addModule(alias Module)(string name = luaNameOf!Module)
     {
+        _state.ensureOpen();
         auto table = moduleTable!Module(_state);
         table.push();
         setTop(name);
@@ -304,6 +319,9 @@ struct LuaModule
     /// Add a compile-time value.
     LuaModule addValue(alias Symbol)(string name = luaNameOf!Symbol)
     {
+        _state.ensureOpen();
+        auto savedTop = _state.top();
+        scope(failure) _state.setTop(savedTop);
         pushTo(_state, Symbol);
         setTop(name);
         return this;

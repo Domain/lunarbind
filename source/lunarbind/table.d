@@ -84,29 +84,38 @@ struct LuaTable
     /// Set weak keys/values through the table's metatable.
     ///
     /// An existing metatable is reused; otherwise an empty one is attached.
-    /// Set this once, before filling the table: Lua only reads `__mode` when
-    /// it collects the table's entries.
+    /// `LuaWeakness.none` removes an existing `__mode` field and does not
+    /// attach a metatable when there is none. Set this once, before filling the
+    /// table: Lua only reads `__mode` when it collects the table's entries.
     void setWeakness(LuaWeakness weakness)
     {
-        if (weakness == LuaWeakness.none)
-            return;
-
         auto s = state();
         s.ensureOpen();
         StackGuard guard = StackGuard(s);
         push();                                  // [table]
         if (lua_getmetatable(s.handle, -1) == 0)
         {
+            // Nothing to clear, and `none` should not attach a metatable.
+            if (weakness == LuaWeakness.none)
+                return;
             lua_createtable(s.handle, 0, 1);      // [table, metatable]
             lua_pushvalue(s.handle, -1);          // [table, metatable, metatable]
             lua_setmetatable(s.handle, -3);       // [table, metatable]
         }
 
-        auto mode = weaknessMode(weakness);
         // Use a raw set: assigning `__mode` must not run a metatable's
         // `__newindex` metamethod (which could raise).
         lua_pushlstring(s.handle, "__mode".ptr, 6);
-        lua_pushlstring(s.handle, mode.ptr, mode.length);
+        if (weakness == LuaWeakness.none)
+        {
+            // Remove the field so the table becomes strong again.
+            lua_pushnil(s.handle);
+        }
+        else
+        {
+            auto mode = weaknessMode(weakness);
+            lua_pushlstring(s.handle, mode.ptr, mode.length);
+        }
         lua_rawset(s.handle, -3);                // [table, metatable]
     }
 

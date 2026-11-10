@@ -137,6 +137,7 @@ private LuaRef bindValue(alias Symbol)(LuaState state, string name)
 /// renames it.
 auto toLua(alias Symbol)(LuaState state, string name = luaNameOf!Symbol)
 {
+    state.ensureOpen();
     static if (isTypeSymbol!Symbol)
     {
         static if (is(Symbol == class))
@@ -180,6 +181,7 @@ auto toLua(alias Symbol)(LuaState state, string name = luaNameOf!Symbol)
 /// expression has no compile-time identifier.
 auto toLua(T)(LuaState state, auto ref T value, string name)
 {
+    state.ensureOpen();
     static if (isSomeFunction!T)
     {
         pushDelegate(state, value);

@@ -483,12 +483,15 @@ struct LuaState
     void push(T)(T value)
     {
         import lunarbind.conv : pushTo;
+        auto savedTop = top();
+        scope(failure) setTop(savedTop);
         pushTo(this, value);
     }
 
     T get(T)(int idx)
     {
         import lunarbind.conv : popFrom;
+        ensureOpen();
         return popFrom!T(this, idx);
     }
 
@@ -498,6 +501,8 @@ struct LuaState
     void setGlobal(T)(string name, T value)
     {
         import lunarbind.conv : pushTo;
+        auto savedTop = top();
+        scope(failure) setTop(savedTop);
         pushTo(this, value);
         raw.setGlobalString(handle, name);
     }

@@ -987,6 +987,20 @@ unittest
         assert(weakKeys[1] == 'kept')
     ");
 
+    // Clearing weakness removes __mode instead of leaving the table weak.
+    weakKeys.setWeakness(LuaWeakness.none);
+    L.doString("
+        assert(getmetatable(weakKeys).__mode == nil)
+        assert(weakKeys[1] == 'kept')
+    ");
+
+    // `none` on a table without a metatable does not attach one.
+    auto strongTable = LuaTable.create(L);
+    strongTable.setWeakness(LuaWeakness.none);
+    strongTable.push();
+    assert(lua_getmetatable(L.handle, -1) == 0);
+    L.pop(1);
+
     // Existing tables can be made weak in place.
     auto weakBoth = LuaTable.create(L);
     weakBoth.setWeakness(LuaWeakness.both);
@@ -1518,6 +1532,33 @@ unittest
         unionPushRejected = e.msg.canFind("no codec registered for union");
     assert(unionPushRejected);
     assert(L.getGlobal!LuaValue("raw_union").isNil());
+
+    // A failed container conversion must not leave a partial table behind.
+    auto topBefore = L.top();
+    bool arrayPushRejected;
+    try
+        L.setGlobal("raw_union_array", [numberUnion]);
+    catch (LuaArgumentException e)
+        arrayPushRejected = e.msg.canFind("no codec registered for union");
+    assert(arrayPushRejected);
+    assert(L.top() == topBefore);
+
+    bool pushRejected;
+    try
+        L.push([numberUnion]);
+    catch (LuaArgumentException e)
+        pushRejected = e.msg.canFind("no codec registered for union");
+    assert(pushRejected);
+    assert(L.top() == topBefore);
+
+    auto pendingModule = LuaModule.create(L);
+    bool moduleSetRejected;
+    try
+        pendingModule.set("bad", [numberUnion]);
+    catch (LuaArgumentException e)
+        moduleSetRejected = e.msg.canFind("no codec registered for union");
+    assert(moduleSetRejected);
+    assert(L.top() == topBefore);
 
     registerCodec!CodecNumber(L, LuaCodec!CodecNumber(
         toDelegate(&CodecNumberCodec.push),
@@ -2608,6 +2649,27 @@ unittest
     expectClosed({ ref_.asValue(); }, "ref value");
     expectClosed({ ref_.pushInto(L); }, "ref pushInto");
     expectClosed({ LuaRef.make(L, -1); }, "ref make");
+
+    // Registration and binding entry points check the state before touching
+    // the raw lua_State pointer.
+    expectClosed({ registerFunction!add(L, "closed_add"); },
+                 "registerFunction");
+    expectClosed({ registerLibrary!("add", add)(L, "closed_lib"); },
+                 "registerLibrary");
+    expectClosed({ toLua!Player(L); }, "toLua type");
+    expectClosed({ toLua(L, 1, "closed_value"); }, "toLua value");
+    expectClosed({ LuaClass!Player.setGlobal(L, "closed_player", null); },
+                 "class setGlobal");
+    expectClosed({ LuaStruct!Point.push(L, Point(1, 2)); },
+                 "struct push");
+    expectClosed({ LuaTable.createWeak(L, LuaWeakness.keys); },
+                 "table createWeak");
+
+    LuaModule closedModule;
+    expectClosed({ closedModule.set("x", 1); }, "module set");
+    expectClosed({ closedModule.setGlobal("closed_module"); },
+                 "module setGlobal");
+    expectClosed({ closedModule.push(); }, "module push");
 }
 
 unittest

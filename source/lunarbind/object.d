@@ -1324,6 +1324,7 @@ struct LuaClass(T)
     /// duplicate GC roots.
     static void push(LuaState state, T obj)
     {
+        state.ensureOpen();
         if (obj is null)
         {
             lua_pushnil(state.handle);
@@ -1369,6 +1370,7 @@ struct LuaClass(T)
     /// Read a D object from a Lua userdata at `idx`.
     static T get(LuaState state, int idx)
     {
+        state.ensureOpen();
         if (lua_type(state.handle, idx) == LUA_TNIL)
             return null;
         if (!isInstance(state, idx))
@@ -1398,6 +1400,7 @@ struct LuaClass(T)
     /// Check whether the value at `idx` is an instance of this class.
     static bool isInstance(LuaState state, int idx)
     {
+        state.ensureOpen();
         idx = raw.absIndex(state.handle, idx); // stack pushes below shift idx
         if (lua_type(state.handle, idx) != LUA_TUSERDATA)
             return false;
@@ -1433,6 +1436,7 @@ struct LuaClass(T)
     /// instance metatable. Use `bind` to also register the table as a global.
     static LuaTable createTable(LuaState state)
     {
+        state.ensureOpen();
         auto L = state.handle;
         ensureMetatable(state);
         raw.pop(L, 1);
@@ -1497,6 +1501,7 @@ struct LuaClass(T)
     /// Ensure the class metatable exists in the registry.
     static void registerClass(LuaState state)
     {
+        state.ensureOpen();
         ensureMetatable(state);
         raw.pop(state.handle, 1);
     }
@@ -1590,6 +1595,7 @@ struct LuaStruct(S)
     static void push(T)(LuaState state, T value)
         if (is(Unqual!T == S))
     {
+        state.ensureOpen();
         auto L = state.handle;
         ensureStructMetatable!S(state);      // [meta]
         auto p = cast(S*) raw.newUserdata(L, S.sizeof);
@@ -1632,6 +1638,7 @@ struct LuaStruct(S)
     /// Check whether the value at `idx` is a box of this struct type.
     static bool isInstance(LuaState state, int idx)
     {
+        state.ensureOpen();
         idx = raw.absIndex(state.handle, idx);
         if (lua_type(state.handle, idx) != LUA_TUSERDATA)
             return false;
@@ -1651,6 +1658,7 @@ struct LuaStruct(S)
     /// struct has no object identity; create boxes from D or through a codec.
     static LuaTable createTable(LuaState state)
     {
+        state.ensureOpen();
         lua_createtable(state.handle, 0, 0);
         static foreach (member; __traits(allMembers, S))
         {{

@@ -289,6 +289,7 @@ private extern(C) int luaRawDelegateWrapper(Dg)(lua_State* L) nothrow
 /// Push a runtime D delegate as a Lua function.
 void pushDelegate(Dg)(LuaState state, Dg dg)
 {
+    state.ensureOpen();
     static if (isRawLuaFunctionType!Dg)
     {
         // A raw Lua callback reads the Lua stack directly. Store the pointer in
@@ -321,6 +322,7 @@ void pushDelegate(Dg)(LuaState state, Dg dg)
 /// Push a compile-time D function as a Lua function.
 void pushFunction(alias Func)(LuaState state)
 {
+    state.ensureOpen();
     static if (isRawLuaFunction!Func)
     {
         pushCFunction(state.handle, &luaRawFunctionWrapper!Func);
@@ -352,6 +354,8 @@ void registerDelegate(Dg)(LuaState state, string name, Dg dg)
 void registerLibrary(Args...)(LuaState state, string libName)
     if (Args.length % 2 == 0)
 {
+    state.ensureOpen();
+    StackGuard guard = StackGuard(state);
     lua_createtable(state.handle, 0, cast(int)(Args.length / 2));
     static foreach (i; 0 .. Args.length / 2)
     {{
