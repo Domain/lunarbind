@@ -168,6 +168,7 @@ extern(C) nothrow @nogc
     const(char)* lua_typename(lua_State* L, int tp);
     lua_Number  lua_tonumber(lua_State* L, int idx);
     lua_Integer lua_tointeger(lua_State* L, int idx);
+    int         lua_isnumber(lua_State* L, int idx);
     int         lua_toboolean(lua_State* L, int idx);
     const(char)* lua_tolstring(lua_State* L, int idx, size_t* len);
     lua_CFunction lua_tocfunction(lua_State* L, int idx);
@@ -487,8 +488,9 @@ else
     {
         static if (LUA_VERSION_NUM == 501)
         {
+            // Match lua_tointegerx on 5.2+: numeric strings convert too.
             if (isnum)
-                *isnum = lua_type(L, idx) == LUA_TNUMBER;
+                *isnum = lua_isnumber(L, idx) != 0;
             return lua_tointeger(L, idx);
         }
         else
@@ -499,8 +501,9 @@ else
     {
         static if (LUA_VERSION_NUM == 501)
         {
+            // Match lua_tonumberx on 5.2+: numeric strings convert too.
             if (isnum)
-                *isnum = lua_type(L, idx) == LUA_TNUMBER;
+                *isnum = lua_isnumber(L, idx) != 0;
             return lua_tonumber(L, idx);
         }
         else

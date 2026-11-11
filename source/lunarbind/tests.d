@@ -915,6 +915,21 @@ unittest
         unsignedThrew = e.msg.canFind("out of range");
     assert(unsignedThrew);
 
+    // Numeric strings convert consistently on every supported version. Lua
+    // 5.1 lacks the *x conversion functions, so the compat helpers must use
+    // lua_isnumber rather than checking the raw type.
+    L.setGlobal("numeric_string", "42");
+    assert(L.getGlobal!int("numeric_string") == 42);
+    assert(L.getGlobal!double("numeric_string") == 42.0);
+    assert(L.getGlobal!string("numeric_string") == "42");
+    L.setGlobal("not_numeric", "forty-two");
+    bool stringIntThrew;
+    try
+        L.getGlobal!int("not_numeric");
+    catch (LuaTypeException)
+        stringIntThrew = true;
+    assert(stringIntThrew);
+
     bool pushThrew;
     try
         L.setGlobal("too_big", ulong.max);
@@ -1560,6 +1575,22 @@ unittest
     assert(moduleSetRejected);
     assert(L.top() == topBefore);
 
+    bool toLuaValueRejected;
+    try
+        toLua(L, [numberUnion], "bad_union_value");
+    catch (LuaArgumentException e)
+        toLuaValueRejected = e.msg.canFind("no codec registered for union");
+    assert(toLuaValueRejected);
+    assert(L.top() == topBefore);
+
+    bool toLuaSymbolRejected;
+    try
+        toLua!numberUnion(L, "bad_union_symbol");
+    catch (LuaArgumentException e)
+        toLuaSymbolRejected = e.msg.canFind("no codec registered for union");
+    assert(toLuaSymbolRejected);
+    assert(L.top() == topBefore);
+
     registerCodec!CodecNumber(L, LuaCodec!CodecNumber(
         toDelegate(&CodecNumberCodec.push),
         toDelegate(&CodecNumberCodec.pop),
@@ -2016,6 +2047,29 @@ unittest
     auto roundTrip = L.getGlobal!(int[string])("aa");
     assert(roundTrip["a"] == 1 && roundTrip["b"] == 2);
 
+    // Associative array keys that convert to nil or NaN are rejected before
+    // lua_rawset can raise an unprotected Lua error.
+    auto nanTop = L.top();
+    int[double] nanKeys;
+    nanKeys[double.nan] = 1;
+    bool nanKeyRejected;
+    try
+        L.setGlobal("nan_keys", nanKeys);
+    catch (LuaArgumentException e)
+        nanKeyRejected = e.msg.canFind("NaN");
+    assert(nanKeyRejected);
+    assert(L.top() == nanTop);
+
+    int[Player] nullKeys;
+    nullKeys[null] = 2;
+    bool nullKeyRejected;
+    try
+        L.setGlobal("null_keys", nullKeys);
+    catch (LuaArgumentException e)
+        nullKeyRejected = e.msg.canFind("nil");
+    assert(nullKeyRejected);
+    assert(L.top() == nanTop);
+
     // refs must not leak into another state
     auto otherState = LuaState.open();
     bool crossStateRejected;
@@ -2063,6 +2117,46 @@ unittest
             assert(objectRootCountForTest(cast(void*) closedObj) == 1);
         }
         assert(objectRootCountForTest(cast(void*) closedObj) == 0);
+    }
+
+    // A userdata whose finalizer already ran can be resurrected and remain
+    // reachable from Lua. Accessing it must raise instead of dereferencing a
+    // null boxed reference.
+    {
+        auto dead = new Player(9, "dead");
+        LuaClass!Player.setGlobal(L, "dead", dead);
+        L.doString("dead_ref = dead");
+        LuaClass!Player.push(L, dead);
+        auto box = cast(Player*) lua_touserdata(L.handle, -1);
+        auto saved = *box;
+        *box = null;
+        L.pop(1);
+
+        bool getThrew;
+        try
+            L.getGlobal!Player("dead");
+        catch (LuaStateException e)
+            getThrew = e.msg.canFind("no longer alive");
+        assert(getThrew);
+
+        void expectDead(string code, string what)
+        {
+            bool threw;
+            try
+                L.doString(code);
+            catch (LuaException e)
+                threw = e.msg.canFind("no longer alive");
+            assert(threw, what);
+        }
+
+        expectDead("dead:damage(1)", "method");
+        expectDead("local hp = dead.hp", "field read");
+        expectDead("dead.hp = 5", "field write");
+        expectDead("return tostring(dead)", "tostring");
+
+        // Restore the box so the state's root accounting stays consistent.
+        *box = saved;
+        L.doString("dead = nil; dead_ref = nil");
     }
 }
 

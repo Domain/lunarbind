@@ -611,11 +611,18 @@ silently reading the wrong registry.
 
 After the state is closed, `LuaState.handle` returns null and checked operations
 (`loadString`, `loadFile`, `eval`, `evalFile`, `doFile`, `globals`, `LuaTable.get`/`set`/`opApply`,
-`LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`) throw
-`LuaStateException`. Default-initialized handles behave the same way instead of
-tripping a `RefCounted` assertion or dereferencing a null state. The
-`@nogc nothrow` stack primitives, `LuaTable.setUnchecked` and
-`LuaValue.pushUnchecked` stay raw: they assume a live state and valid handle.
+`LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`,
+`toLua`, `registerFunction`, `registerLibrary`, `LuaClass!T.setGlobal`,
+`LuaStruct!S.push` and the `LuaModule` mutators) throw `LuaStateException`.
+Default-initialized handles behave the same way instead of tripping a
+`RefCounted` assertion or dereferencing a null state. The `@nogc nothrow` stack
+primitives, `LuaTable.setUnchecked` and `LuaValue.pushUnchecked` stay raw: they
+assume a live state and valid handle. `LuaTable.setUnchecked` also assumes a
+valid key; use `set` when the key may be nil or NaN.
+
+`popFrom!(const(char)[])` returns a slice into Lua's interned string storage, so
+it is only valid while that Lua value stays alive. Pop into `string` or `char[]`
+for an owned copy; `LuaString` is the explicit zero-copy view.
 
 A `LuaThread` handle addresses one coroutine's stack while sharing the owner's
 `StateCore` and registry. `LuaThread.resume` pushes arguments on the coroutine
@@ -635,10 +642,13 @@ and not reference-counted, `lunarbind` keeps its own per-object count: an object
 exposed in two Lua states (or through two class views) is unrooted only when the
 last userdata is finalized. Each class metatable also owns a weak-valued
 identity table, so pushing the same D object again reuses the existing userdata
-while Lua still has it. Struct boxes live in Lua-allocated memory, which the D
-GC does not scan; when the struct contains GC-managed fields (strings, arrays,
-class references, delegates), the box is registered as a GC range while Lua
-owns it and unregistered from `__gc`.
+while Lua still has it. A finalized userdata can be resurrected by Lua (for
+example by storing it in a global from `__gc`); its boxed D reference is
+cleared, so field access, method calls, `tostring`, `#` and `LuaClass!T.get`
+raise instead of dereferencing a null reference. Struct boxes live in
+Lua-allocated memory, which the D GC does not scan; when the struct contains
+GC-managed fields (strings, arrays, class references, delegates), the box is
+registered as a GC range while Lua owns it and unregistered from `__gc`.
 
 Goals and non-goals:
 

@@ -77,6 +77,10 @@ package template overloadSetLength(alias Symbol)
 
 private LuaRef makeGlobalRef(LuaState state, string name)
 {
+    // The value to register is on top; restore the caller's stack if making
+    // the reference or setting the global throws.
+    auto savedTop = state.top() - 1;
+    scope(failure) state.setTop(savedTop);
     auto ref_ = LuaRef.make(state, -1);
     state.pop(1);
     ref_.pushInto(state);
@@ -121,6 +125,8 @@ private LuaTable bindModule(alias Module)(LuaState state, string name)
 
 private LuaRef bindValue(alias Symbol)(LuaState state, string name)
 {
+    auto savedTop = state.top();
+    scope(failure) state.setTop(savedTop);
     pushTo(state, Symbol);
     return makeGlobalRef(state, name);
 }
@@ -189,6 +195,8 @@ auto toLua(T)(LuaState state, auto ref T value, string name)
     }
     else
     {
+        auto savedTop = state.top();
+        scope(failure) state.setTop(savedTop);
         pushTo(state, value);
         return makeGlobalRef(state, name);
     }

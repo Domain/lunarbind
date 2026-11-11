@@ -679,6 +679,19 @@ private extern(C) int classGc(T)(lua_State* L) nothrow
     return 0;
 }
 
+// A class userdata can outlive its finalizer when `__gc` resurrects it. The
+// boxed D reference is null then; every field, method, length and tostring path
+// must reject it instead of dereferencing null. Struct boxes store the value
+// directly and have no such state, so the check is a no-op for them.
+private void requireLiveClass(T)(T* self)
+{
+    static if (is(T == class))
+    {
+        if (self is null || *self is null)
+            throw new LuaStateException(T.stringof ~ " instance is no longer alive");
+    }
+}
+
 // Every class metatable owns a weak-valued table mapping the boxed D object
 // pointer to its userdata. While the userdata is reachable from Lua, pushing
 // the same D object reuses it; when Lua collects it, the weak entry disappears
@@ -720,6 +733,7 @@ private extern(C) int classToString(T)(lua_State* L) nothrow
     try
     {
         auto self = cast(T*) lua_touserdata(L, 1);
+        requireLiveClass!T(self);
         auto s = self.toString();
         if (s is null)
             s = "";
@@ -735,6 +749,7 @@ private extern(C) int classLen(T)(lua_State* L) nothrow
     try
     {
         auto self = cast(T*) lua_touserdata(L, 1);
+        requireLiveClass!T(self);
         static if (isField!(T, "length"))
             auto len = __traits(getMember, *self, "length");
         else
@@ -1032,6 +1047,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         auto self = cast(T*) lua_touserdata(L, 1);
+        requireLiveClass!T(self);
 
         // Only string keys can name fields/methods. Check the type first so
         // numeric and other keys stay intact instead of being coerced by
@@ -1105,6 +1121,7 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         auto self = cast(T*) lua_touserdata(L, 1);
+        requireLiveClass!T(self);
 
         if (lua_type(L, 2) == LUA_TSTRING)
         {
@@ -1220,6 +1237,7 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         auto self = cast(T*) lua_touserdata(L, 1);
+        requireLiveClass!T(self);
         auto nargs = cast(size_t)(lua_gettop(L) - 1);
 
         static foreach (i, Method; __traits(getOverloads, T, member))
@@ -1376,6 +1394,7 @@ struct LuaClass(T)
         if (!isInstance(state, idx))
             throw new LuaTypeException("expected userdata of type " ~ T.stringof);
         auto p = cast(T*) lua_touserdata(state.handle, idx);
+        requireLiveClass!T(p);
         return *p;
     }
 

@@ -212,6 +212,9 @@ struct LuaState
     void openLibraries(LuaLib libs)
     {
         ensureOpen();
+        // A failed opener leaves its error object on the stack; keep the
+        // caller's stack unchanged on both success and failure.
+        StackGuard guard = StackGuard(this);
 
         if ((libs & LuaLib.base) != LuaLib.none)
             openLibrary("_G", &luaopen_base);

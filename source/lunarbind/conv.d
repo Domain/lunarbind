@@ -211,6 +211,20 @@ void pushTo(T)(LuaState L, auto ref T value)
         foreach (k, v; value)
         {
             pushTo(L, k);
+            // lua_rawset raises on nil and NaN keys. Reject them here so a
+            // failed conversion becomes a D exception instead of an
+            // unprotected longjmp out of D code.
+            auto keyType = lua_type(L.handle, -1);
+            if (keyType == LUA_TNIL)
+                throw new LuaArgumentException(
+                    "associative array key converts to nil");
+            if (keyType == LUA_TNUMBER)
+            {
+                auto n = raw.toNumberX(L.handle, -1, null);
+                if (n != n)
+                    throw new LuaArgumentException(
+                        "associative array key converts to NaN");
+            }
             pushTo(L, v);
             lua_rawset(L.handle, -3);
         }
