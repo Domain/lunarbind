@@ -845,6 +845,14 @@ int coroutineCallback(LuaState L, int value)
     return value + 1;
 }
 
+// Used by the nested-resume test; reset after the coroutine finishes.
+LuaThread nestedResumeThread;
+int resumeNested(LuaState from)
+{
+    auto values = nestedResumeThread.resumeFrom(from, 41);
+    return asInt(values[0]);
+}
+
 // Filled from a Lua callback; must stay valid after the callback returns.
 LuaTable capturedTable;
 void captureTable(LuaTable table) { capturedTable = table; }
@@ -1142,6 +1150,39 @@ unittest
     assert(callbackValues.length == 1);
     assert(asInt(callbackValues[0]) == 42);
     assert(L.getGlobal!int("coroutine_callback_seen") == 41);
+
+    // Resuming from inside a coroutine passes the calling thread to Lua, so
+    // the inner coroutine inherits the outer thread's C-call depth.
+    nestedResumeThread = LuaThread.create(
+        L.loadString("return function(x) return x + 1 end")
+         .call!LuaFunction());
+    registerFunction!resumeNested(L, "resume_nested");
+    auto outerThread = LuaThread.create(
+        L.loadString("return function() return resume_nested() end")
+         .call!LuaFunction());
+    auto nestedValues = outerThread.resume();
+    assert(nestedValues.length == 1);
+    assert(asInt(nestedValues[0]) == 42);
+    nestedResumeThread = LuaThread.init;
+
+    // resumeFrom rejects closed and foreign states.
+    auto closedThread = LuaThread.create(
+        L.loadString("return function() end").call!LuaFunction());
+    bool rejectedClosed;
+    try
+        closedThread.resumeFrom(LuaState.init);
+    catch (LuaStateException)
+        rejectedClosed = true;
+    assert(rejectedClosed);
+
+    auto foreignState = LuaState.open();
+    bool rejectedForeign;
+    try
+        closedThread.resumeFrom(foreignState);
+    catch (LuaStateException)
+        rejectedForeign = true;
+    assert(rejectedForeign);
+    foreignState.close();
 
     // Lua tables can be passed to a coroutine and returned from a yield.
     auto tableThread = LuaThread.create(

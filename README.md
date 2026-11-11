@@ -47,7 +47,7 @@ source/lunarbind/
   bind.d         toLua: unified registration for functions, classes, struct type tables, modules, enums, values
   export_.d      @LuaExport: Lua names and member filtering
   stub.d         luaStubs / LuaStubBuilder: EmmyLua declaration generation
-  coroutine.d    LuaThread: create/resume/yield/status coroutine handles
+  coroutine.d    LuaThread: create/fromValue/resume/resumeFrom/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
 ```
@@ -626,10 +626,13 @@ for an owned copy; `LuaString` is the explicit zero-copy view.
 
 A `LuaThread` handle addresses one coroutine's stack while sharing the owner's
 `StateCore` and registry. `LuaThread.resume` pushes arguments on the coroutine
-stack, resumes it, and copies yielded or final values into D. `LuaState.wrap`
-preserves the thread when called from a Lua callback, while `mainState()` returns
-a handle to the owner state; registry references always push through the main
-state so they cannot disturb a suspended coroutine.
+stack, resumes it, and copies yielded or final values into D. It assumes the
+caller runs on the main thread; when a bound callback running inside a
+coroutine resumes another one, pass the callback's injected state as the first
+argument to `LuaThread.resumeFrom` so Lua inherits the caller's C-call depth.
+`LuaState.wrap` preserves the thread when called from a Lua callback, while
+`mainState()` returns a handle to the owner state; registry references always
+push through the main state so they cannot disturb a suspended coroutine.
 
 `LuaState` and every handle derived from it are single-threaded. Lua states are
 not internally synchronized, and `StateCore` tracks reference counts with a

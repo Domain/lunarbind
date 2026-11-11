@@ -12,7 +12,8 @@ import lunarbind.function_ : LuaFunction;
 /// A Lua coroutine (thread) owned through a registry reference.
 ///
 /// A thread starts with a function on its stack. `resume` pushes arguments,
-/// runs until the next yield or return, and collects the produced values.
+/// runs until the next yield or return, and collects the produced values;
+/// `resumeFrom` is the variant for resuming from inside another coroutine.
 struct LuaThread
 {
     private LuaRef _ref;
@@ -84,7 +85,34 @@ struct LuaThread
     /// Resume with `args`, returning all yielded or final values.
     ///
     /// Lua errors are thrown as `LuaException`; a normal yield is not an error.
+    /// The caller is assumed to run on the main thread; use `resumeFrom` when
+    /// resuming from inside a coroutine.
     LuaValue[] resume(Args...)(Args args)
+    {
+        return resumeImpl(state(), args);
+    }
+
+    /// Resume with `args` as if called from `from`.
+    ///
+    /// Pass the state wrapping the currently executing thread when resuming
+    /// from inside a bound callback that Lua invoked from a coroutine, for
+    /// example `thread.resumeFrom(state, arg)` with the callback's injected
+    /// `LuaState`. Lua 5.2+ uses `from` to inherit the caller's C-call depth;
+    /// Lua 5.1 and LuaJIT ignore it.
+    LuaValue[] resumeFrom(Args...)(LuaState from, Args args)
+    {
+        if (_thread is null)
+            throw new LuaStateException("coroutine is not initialized");
+        if (!from.isOpen())
+            throw new LuaStateException(
+                "cannot resume a coroutine from a closed Lua state");
+        if (!from.sharesState(state()))
+            throw new LuaStateException(
+                "cannot resume a coroutine from a different Lua state");
+        return resumeImpl(from, args);
+    }
+
+    private LuaValue[] resumeImpl(Args...)(LuaState from, Args args)
     {
         if (_thread is null)
             throw new LuaStateException("coroutine is not initialized");
@@ -109,7 +137,7 @@ struct LuaThread
         // after a yield leaves the coroutine's suspended frame intact.
         scope(exit) lua_settop(_thread, 0);
 
-        auto status = raw.resume(_thread, state().handle,
+        auto status = raw.resume(_thread, from.handle,
                                  cast(int) args.length);
         if (status != LUA_OK && status != LUA_YIELD)
         {

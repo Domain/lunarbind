@@ -5,7 +5,7 @@
 ///     and stack primitives
 ///   - `@nogc` primitive push/stack/table paths and `LuaValue.pushUnchecked`
 ///   - `LuaTable` / `LuaFunction` typed handles
-///   - `LuaThread` coroutine create/resume/status handle
+///   - `LuaThread` coroutine create/adopt/resume/resumeFrom/status handle
 ///   - `LuaValue` dynamic value
 ///   - `pushTo` / `popFrom` conversion functions
 ///   - D `Tuple` results expand into multiple Lua return values
