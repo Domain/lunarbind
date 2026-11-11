@@ -610,7 +610,7 @@ reference into a different Lua state throws `LuaStateException` instead of
 silently reading the wrong registry.
 
 After the state is closed, `LuaState.handle` returns null and checked operations
-(`loadString`, `loadFile`, `eval`, `evalFile`, `doFile`, `globals`, `LuaTable.get`/`set`/`opApply`,
+(`loadString`, `loadFile`, `eval`, `evalFile`, `doFile`, `globals`, `typeName`, `LuaTable.get`/`set`/`opApply`,
 `LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`,
 `toLua`, `registerFunction`, `registerLibrary`, `LuaClass!T.setGlobal`,
 `LuaStruct!S.push` and the `LuaModule` mutators) throw `LuaStateException`.
@@ -645,7 +645,10 @@ identity table, so pushing the same D object again reuses the existing userdata
 while Lua still has it. A finalized userdata can be resurrected by Lua (for
 example by storing it in a global from `__gc`); its boxed D reference is
 cleared, so field access, method calls, `tostring`, `#` and `LuaClass!T.get`
-raise instead of dereferencing a null reference. Struct boxes live in
+raise instead of dereferencing a null reference. Struct boxes carry an explicit
+liveness marker: finalization clears the value and removes its GC range, and
+any later field access, method call or `LuaStruct!S.get` on a resurrected
+userdata raises instead of exposing stale pointers. Struct boxes live in
 Lua-allocated memory, which the D GC does not scan; when the struct contains
 GC-managed fields (strings, arrays, class references, delegates), the box is
 registered as a GC range while Lua owns it and unregistered from `__gc`.

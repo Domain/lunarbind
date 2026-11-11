@@ -679,16 +679,36 @@ private extern(C) int classGc(T)(lua_State* L) nothrow
     return 0;
 }
 
-// A class userdata can outlive its finalizer when `__gc` resurrects it. The
-// boxed D reference is null then; every field, method, length and tostring path
-// must reject it instead of dereferencing null. Struct boxes store the value
-// directly and have no such state, so the check is a no-op for them.
-private void requireLiveClass(T)(T* self)
+// Struct boxes store the value inline, so liveness needs an explicit marker.
+// The extra byte after the value is 1 while the box is alive and 0 after
+// `__gc`. A resurrected userdata must not expose its cleared value or accept
+// writes, because its GC range has already been removed.
+private bool structBoxAlive(S)(S* self) @nogc nothrow
+{
+    return self !is null && (cast(const(ubyte)*) self)[S.sizeof] != 0;
+}
+
+private void setStructBoxAlive(S)(S* self, bool alive) @nogc nothrow
+{
+    (cast(ubyte*) self)[S.sizeof] = alive ? 1 : 0;
+}
+
+// A userdata can outlive its finalizer when `__gc` resurrects it. A class box
+// holds a null D reference then; a struct box carries a cleared value and a
+// dead marker. Every field, method, length and tostring path must reject the
+// dead box instead of dereferencing null or reading memory whose GC range was
+// already removed.
+private void requireLiveBox(T)(T* self)
 {
     static if (is(T == class))
     {
         if (self is null || *self is null)
             throw new LuaStateException(T.stringof ~ " instance is no longer alive");
+    }
+    else static if (is(T == struct))
+    {
+        if (!structBoxAlive!T(self))
+            throw new LuaStateException(T.stringof ~ " value is no longer alive");
     }
 }
 
@@ -733,7 +753,7 @@ private extern(C) int classToString(T)(lua_State* L) nothrow
     try
     {
         auto self = cast(T*) lua_touserdata(L, 1);
-        requireLiveClass!T(self);
+        requireLiveBox!T(self);
         auto s = self.toString();
         if (s is null)
             s = "";
@@ -749,7 +769,7 @@ private extern(C) int classLen(T)(lua_State* L) nothrow
     try
     {
         auto self = cast(T*) lua_touserdata(L, 1);
-        requireLiveClass!T(self);
+        requireLiveBox!T(self);
         static if (isField!(T, "length"))
             auto len = __traits(getMember, *self, "length");
         else
@@ -927,19 +947,30 @@ private template anyPointerField(Fields...)
 // references, arrays and delegates stay alive.
 private extern(C) int structGc(S)(lua_State* L) nothrow
 {
+    auto p = cast(S*) lua_touserdata(L, 1);
+    // A resurrected userdata may be finalized again by a custom Lua __gc.
+    // Only the first finalization owns the GC range and the live value.
+    if (p is null || !structBoxAlive!S(p))
+        return 0;
+
+    setStructBoxAlive!S(p, false);
     static if (hasDPointers!S)
     {
-        auto p = lua_touserdata(L, 1);
-        if (p !is null)
-        {
-            // Newer druntime tracks range sizes internally and removed the
-            // size argument from removeRange.
-            static if (__traits(compiles, GC.removeRange(p, S.sizeof)))
-                GC.removeRange(p, S.sizeof);
-            else
-                GC.removeRange(p);
-        }
+        // Newer druntime tracks range sizes internally and removed the
+        // size argument from removeRange.
+        static if (__traits(compiles, GC.removeRange(p, S.sizeof)))
+            GC.removeRange(p, S.sizeof);
+        else
+            GC.removeRange(p);
     }
+
+    // Drop contained references before the memory can be observed through a
+    // resurrected userdata. Binding access raises on the dead marker, but a
+    // raw lua_touserdata user should never see stale pointers either. Zeroed
+    // bits are valid for every D scalar, pointer and dynamic-array field and
+    // avoid requiring a copy or default construction of `S`.
+    import core.stdc.string : memset;
+    memset(p, 0, S.sizeof);
     return 0;
 }
 
@@ -949,8 +980,9 @@ private extern(C) int structEq(S)(lua_State* L) nothrow
     {
         auto a = cast(S*) lua_touserdata(L, 1);
         auto b = cast(S*) lua_touserdata(L, 2);
-        bool eq = a !is null && b !is null && *a == *b;
-        lua_pushboolean(L, eq ? 1 : 0);
+        requireLiveBox!S(a);
+        requireLiveBox!S(b);
+        lua_pushboolean(L, *a == *b ? 1 : 0);
         return 1;
     }
     catch (Throwable e)
@@ -1047,7 +1079,7 @@ private extern(C) int classIndex(T)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         auto self = cast(T*) lua_touserdata(L, 1);
-        requireLiveClass!T(self);
+        requireLiveBox!T(self);
 
         // Only string keys can name fields/methods. Check the type first so
         // numeric and other keys stay intact instead of being coerced by
@@ -1121,7 +1153,7 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         auto self = cast(T*) lua_touserdata(L, 1);
-        requireLiveClass!T(self);
+        requireLiveBox!T(self);
 
         if (lua_type(L, 2) == LUA_TSTRING)
         {
@@ -1237,7 +1269,7 @@ private extern(C) int methodThunk(T, string member)(lua_State* L) nothrow
     {
         auto state = LuaState.wrap(L);
         auto self = cast(T*) lua_touserdata(L, 1);
-        requireLiveClass!T(self);
+        requireLiveBox!T(self);
         auto nargs = cast(size_t)(lua_gettop(L) - 1);
 
         static foreach (i, Method; __traits(getOverloads, T, member))
@@ -1350,6 +1382,8 @@ struct LuaClass(T)
         }
 
         auto L = state.handle;
+        auto savedTop = state.top();
+        scope(failure) state.setTop(savedTop);
         ensureMetatable(state);              // class metatable
         ensureIdentityTable(L, -1);          // class metatable, identity table
         auto metaIdx = raw.absIndex(L, -2);
@@ -1394,7 +1428,7 @@ struct LuaClass(T)
         if (!isInstance(state, idx))
             throw new LuaTypeException("expected userdata of type " ~ T.stringof);
         auto p = cast(T*) lua_touserdata(state.handle, idx);
-        requireLiveClass!T(p);
+        requireLiveBox!T(p);
         return *p;
     }
 
@@ -1457,6 +1491,8 @@ struct LuaClass(T)
     {
         state.ensureOpen();
         auto L = state.handle;
+        auto savedTop = state.top();
+        scope(failure) state.setTop(savedTop);
         ensureMetatable(state);
         raw.pop(L, 1);
 
@@ -1607,6 +1643,8 @@ struct LuaClass(T)
 /// visible to subsequent reads. Pushing the same D value again creates a new
 /// box; there is no struct identity. Reading a struct-valued field of a class
 /// pushes a copy, so mutating that copy does not write back to the class field.
+/// A finalized box is marked dead; if Lua resurrects it from `__gc`, field
+/// access, method calls and `get` raise instead of reading the cleared value.
 struct LuaStruct(S)
     if (is(S == struct))
 {
@@ -1615,10 +1653,13 @@ struct LuaStruct(S)
         if (is(Unqual!T == S))
     {
         state.ensureOpen();
+        auto savedTop = state.top();
+        scope(failure) state.setTop(savedTop);
         auto L = state.handle;
         ensureStructMetatable!S(state);      // [meta]
-        auto p = cast(S*) raw.newUserdata(L, S.sizeof);
+        auto p = cast(S*) raw.newUserdata(L, S.sizeof + 1);
         *p = cast(S) value;
+        setStructBoxAlive!S(p, true);
         static if (hasDPointers!S)
             GC.addRange(p, S.sizeof);
 
@@ -1632,7 +1673,9 @@ struct LuaStruct(S)
     {
         if (!isInstance(state, idx))
             throw new LuaTypeException("expected userdata of type " ~ S.stringof);
-        return *cast(S*) lua_touserdata(state.handle, idx);
+        auto p = cast(S*) lua_touserdata(state.handle, idx);
+        requireLiveBox!S(p);
+        return *p;
     }
 
     /// Push a global variable and register it under `name`.
@@ -1678,6 +1721,8 @@ struct LuaStruct(S)
     static LuaTable createTable(LuaState state)
     {
         state.ensureOpen();
+        auto savedTop = state.top();
+        scope(failure) state.setTop(savedTop);
         lua_createtable(state.handle, 0, 0);
         static foreach (member; __traits(allMembers, S))
         {{

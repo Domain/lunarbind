@@ -51,6 +51,9 @@ struct LuaThread
             throw new LuaTypeException("expected a Lua coroutine thread");
 
         auto s = value.ref_.state();
+        if (!s.isOpen())
+            throw new LuaStateException(
+                "cannot adopt a coroutine from a closed Lua state");
         StackGuard guard = StackGuard(s);
         value.push(s);
         auto thread = lua_tothread(s.handle, -1);

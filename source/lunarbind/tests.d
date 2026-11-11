@@ -2020,6 +2020,7 @@ unittest
     // a wrapper must share the owner's core
     auto wrapped = LuaState.wrap(L.handle);
     assert(wrapped.sharesState(L));
+    assert(!LuaState.init.sharesState(LuaState.init));
     assert(wrapped.getGlobal!int("answer") == 42);
 
     // a reference created inside a callback must outlive the callback
@@ -2157,6 +2158,61 @@ unittest
         // Restore the box so the state's root accounting stays consistent.
         *box = saved;
         L.doString("dead = nil; dead_ref = nil");
+    }
+
+    // Struct boxes carry an explicit liveness marker. A finalizer that
+    // resurrects the userdata must not leave a value whose GC range was
+    // already removed accessible through the binding.
+    {
+        LuaStruct!NamedValue.setGlobal(L, "doomed_struct",
+                                       NamedValue("payload".idup, 3));
+        L.doString(q{
+            local s = doomed_struct
+            doomed_struct = nil
+            local mt = debug.getmetatable(s)
+            local finalize = mt.__gc
+            resurrected_meta = mt
+            resurrected_finalize = finalize
+            mt.__gc = function(u) finalize(u); resurrected_struct = u end
+            s = nil
+            collectgarbage()
+            collectgarbage()
+        });
+        assert(L.getGlobal!LuaValue("resurrected_struct").kind
+               == LuaType.userdata);
+
+        bool structGetThrew;
+        try
+            L.getGlobal!NamedValue("resurrected_struct");
+        catch (LuaStateException e)
+            structGetThrew = e.msg.canFind("no longer alive");
+        assert(structGetThrew);
+
+        void expectStructDead(string code, string what)
+        {
+            bool threw;
+            try
+                L.doString(code);
+            catch (LuaException e)
+                threw = e.msg.canFind("no longer alive");
+            assert(threw, what);
+        }
+
+        expectStructDead("local name = resurrected_struct.name",
+                         "struct field read");
+        expectStructDead("resurrected_struct.name = 'changed'",
+                         "struct field write");
+        expectStructDead("resurrected_struct.value = 9",
+                         "struct integer field write");
+
+        // Drop the wrapper and the resurrected userdata before other tests
+        // reuse the shared NamedValue metatable.
+        L.doString(q{
+            resurrected_meta.__gc = resurrected_finalize
+            resurrected_meta = nil
+            resurrected_finalize = nil
+            resurrected_struct = nil
+        });
     }
 }
 
@@ -2723,6 +2779,7 @@ unittest
     expectClosed({ L.loadString("return 1"); }, "loadString");
     expectClosed({ L.eval("return 1"); }, "eval");
     expectClosed({ L.globals(); }, "globals");
+    expectClosed({ L.typeName(1); }, "typeName");
     expectClosed({ LuaTable.create(L); }, "table create");
 
     LuaTable table;

@@ -322,7 +322,7 @@ struct LuaState
     /// True when both handles share the same StateCore (same Lua universe).
     bool sharesState(LuaState other) @nogc nothrow
     {
-        return _core is other._core;
+        return _core !is null && _core is other._core;
     }
 
     /// Explicitly close an owned state. Throws if LuaRef copies still exist.
@@ -478,6 +478,7 @@ struct LuaState
 
     string typeName(int idx)
     {
+        ensureOpen();
         return lua_typename(handle, lua_type(handle, idx))[0 .. strlen(lua_typename(handle, lua_type(handle, idx)))].idup;
     }
 
