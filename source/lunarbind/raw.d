@@ -486,11 +486,42 @@ else
 
     lua_Integer toIntegerX(lua_State* L, int idx, int* isnum)
     {
+        static if (LUA_VERSION_NUM >= 503)
+        {
+            if (lua_isinteger(L, idx))
+                return lua_tointegerx(L, idx, isnum);
+            // Integers and strings convert natively; strings are parsed
+            // exactly, so int64 values above 2^53 survive. Plain floats use
+            // the shared check below.
+            if (lua_type(L, idx) != LUA_TNUMBER)
+                return lua_tointegerx(L, idx, isnum);
+        }
+
+        // Lua 5.1 and 5.2 truncate non-integral numbers in lua_tointeger and
+        // 5.2 wraps out-of-range floats. Validate plain numbers first so all
+        // versions match D's checked conversions.
+        import std.math : floor;
+
+        auto ok = lua_isnumber(L, idx) != 0;
+        if (ok)
+        {
+            auto n = toNumberX(L, idx, null);
+            // -min is 2^(bits-1), an exact exclusive upper bound.
+            if (n != floor(n)
+                || n < cast(lua_Number) lua_Integer.min
+                || n >= -cast(lua_Number) lua_Integer.min)
+                ok = false;
+        }
+        if (!ok)
+        {
+            if (isnum)
+                *isnum = 0;
+            return 0;
+        }
         static if (LUA_VERSION_NUM == 501)
         {
-            // Match lua_tointegerx on 5.2+: numeric strings convert too.
             if (isnum)
-                *isnum = lua_isnumber(L, idx) != 0;
+                *isnum = 1;
             return lua_tointeger(L, idx);
         }
         else

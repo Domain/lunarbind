@@ -938,6 +938,25 @@ unittest
         stringIntThrew = true;
     assert(stringIntThrew);
 
+    // Non-integral and out-of-range numbers are rejected on every version.
+    // Lua 5.1/LuaJIT truncate in lua_tointeger and Lua 5.2 wraps
+    // out-of-range floats, so the compat helper checks the value first.
+    L.setGlobal("fractional", 3.75);
+    bool fractionalThrew;
+    try
+        L.getGlobal!int("fractional");
+    catch (LuaTypeException)
+        fractionalThrew = true;
+    assert(fractionalThrew);
+
+    L.setGlobal("huge_number", 1e300);
+    bool hugeThrew;
+    try
+        L.getGlobal!long("huge_number");
+    catch (LuaTypeException)
+        hugeThrew = true;
+    assert(hugeThrew);
+
     bool pushThrew;
     try
         L.setGlobal("too_big", ulong.max);
@@ -2841,6 +2860,11 @@ unittest
     expectClosed({ ref_.asValue(); }, "ref value");
     expectClosed({ ref_.pushInto(L); }, "ref pushInto");
     expectClosed({ LuaRef.make(L, -1); }, "ref make");
+
+    // LuaValue's checked paths reject a closed state; pushUnchecked stays raw.
+    auto closedValue = LuaValue.fromInteger(1);
+    expectClosed({ closedValue.push(L); }, "value push");
+    expectClosed({ LuaValue.fromStack(L, 1); }, "value fromStack");
 
     // Registration and binding entry points check the state before touching
     // the raw lua_State pointer.

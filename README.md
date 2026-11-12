@@ -170,9 +170,11 @@ throw typed D exceptions on conversion errors, which requires allocation; they
 are intentionally not `@nogc`. Integer conversions are range-checked: popping a
 Lua integer into a narrower or unsigned D type throws `LuaArgumentException`
 instead of truncating, and pushing an unsigned value above `lua_Integer.max` is
-rejected. When you need a no-allocation path, validate with `typeOf` and read
-through the stack primitives, or use `LuaValue.pushUnchecked` after confirming
-state ownership yourself.
+rejected. Non-integral numbers and values outside `lua_Integer`'s range are
+rejected on every runtime, including Lua 5.1/LuaJIT where `lua_tointeger`
+would truncate. When you need a no-allocation path, validate with `typeOf` and
+read through the stack primitives, or use `LuaValue.pushUnchecked` after
+confirming state ownership yourself.
 
 ## Error handling
 
@@ -611,8 +613,8 @@ silently reading the wrong registry.
 
 After the state is closed, `LuaState.handle` returns null and checked operations
 (`loadString`, `loadFile`, `eval`, `evalFile`, `doFile`, `globals`, `typeName`, `LuaTable.get`/`set`/`opApply`,
-`LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`,
-`toLua`, `registerFunction`, `registerLibrary`, `LuaClass!T.setGlobal`,
+`LuaFunction.call`, `LuaRef.type`, `LuaRef.make`, `LuaThread.resume`/`resumeFrom`,
+`LuaValue.push`/`fromStack`, `toLua`, `registerFunction`, `registerLibrary`, `LuaClass!T.setGlobal`,
 `LuaStruct!S.push` and the `LuaModule` mutators) throw `LuaStateException`.
 Default-initialized handles behave the same way instead of tripping a
 `RefCounted` assertion or dereferencing a null state. The `@nogc nothrow` stack

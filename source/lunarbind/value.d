@@ -32,8 +32,11 @@ struct LuaValue
     bool isNil() const @nogc nothrow { return kind == LuaType.nil; }
 
     /// Copy the value at `idx` into a dynamic LuaValue.
+    ///
+    /// Throws `LuaStateException` when `state` is closed.
     static LuaValue fromStack(LuaState state, int idx)
     {
+        state.ensureOpen();
         auto t = lua_type(state.handle, idx);
         final switch (t)
         {
@@ -82,8 +85,12 @@ struct LuaValue
     }
 
     /// Push this value onto the stack.
+    ///
+    /// Throws `LuaStateException` when `state` is closed or when a referenced
+    /// value belongs to a different Lua state. Use `pushUnchecked` on hot paths.
     void push(LuaState state)
     {
+        state.ensureOpen();
         switch (kind)
         {
             case LuaType.table:
