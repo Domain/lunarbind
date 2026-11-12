@@ -977,6 +977,11 @@ unittest
         invalidRefThrew = e.msg.canFind("stack value");
     assert(invalidRefThrew);
 
+    // An out-of-range index is "no value" on every runtime; Lua 5.1's
+    // lua_typename handles LUA_TNONE explicitly instead of indexing the
+    // type-name array.
+    assert(L.typeName(L.top() + 1) == "no value");
+
     // tables
     auto g = L.globals();
     g["name"] = "lunarbind";

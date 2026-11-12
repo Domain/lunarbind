@@ -848,6 +848,10 @@ struct LuaRef
         return _holder.ref_;
     }
 
+    /// Push the referenced value onto the state's main stack.
+    ///
+    /// This is the allocation-free path and assumes the owning state is still
+    /// open. Use `pushInto` when the target state or liveness must be checked.
     void push() @nogc nothrow
     {
         assert(_holder.refCountedStore.isInitialized,

@@ -619,9 +619,10 @@ After the state is closed, `LuaState.handle` returns null and checked operations
 `LuaStruct!S.push` and the `LuaModule` mutators) throw `LuaStateException`.
 Default-initialized handles behave the same way instead of tripping a
 `RefCounted` assertion or dereferencing a null state. The `@nogc nothrow` stack
-primitives, `LuaTable.setUnchecked` and `LuaValue.pushUnchecked` stay raw: they
-assume a live state and valid handle. `LuaTable.setUnchecked` also assumes a
-valid key; use `set` when the key may be nil or NaN.
+primitives, `LuaRef.push`, `LuaFunction.push`, `LuaTable.setUnchecked` and
+`LuaValue.pushUnchecked` stay raw: they assume a live state and valid handle.
+`LuaTable.setUnchecked` also assumes a valid key; use `set` when the key may be
+nil or NaN.
 
 `popFrom!(const(char)[])` returns a slice into Lua's interned string storage, so
 it is only valid while that Lua value stays alive. Pop into `string` or `char[]`
