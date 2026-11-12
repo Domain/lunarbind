@@ -2747,6 +2747,50 @@ unittest
 
 unittest
 {
+    // Internal class metatable metadata is accessed raw. Lua code can reach
+    // these tables through the debug library, and a metatable it attaches must
+    // not run __index/__newindex while D frames are active.
+    auto L = LuaState.open();
+
+    auto player = new Player(10, "raw");
+    LuaClass!Player.setGlobal(L, "player", player);
+
+    L.doString(`
+        local m = debug.getmetatable(player)
+        assert(m.__lunarbind_identity ~= nil)
+        m.__lunarbind_identity = nil
+        setmetatable(m, {
+            __index = function() error('tampered identity index') end,
+            __newindex = function() error('tampered identity newindex') end,
+        })
+    `);
+
+    // The identity table is recreated with raw access; no metamethod runs.
+    LuaClass!Player.push(L, player);
+    L.pop(1);
+
+    // The base-metatable list is read raw for derived instances.
+    auto dog = new Dog("rex");
+    LuaClass!Dog.setGlobal(L, "dog", dog);
+    LuaClass!Animal.registerClass(L);
+
+    L.doString(`
+        local m = debug.getmetatable(dog)
+        assert(m.__lunarbind_bases ~= nil)
+        m.__lunarbind_bases = nil
+        setmetatable(m, {
+            __index = function() error('tampered bases index') end,
+            __newindex = function() error('tampered bases newindex') end,
+        })
+    `);
+
+    LuaClass!Dog.push(L, dog);
+    assert(!LuaClass!Animal.isInstance(L, -1));
+    L.pop(1);
+}
+
+unittest
+{
     // Lua errors longjmp out of callbacks, so every temporary LuaState must be
     // destroyed before lua_error runs; otherwise its reference leaks.
     auto L = LuaState.open();

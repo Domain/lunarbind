@@ -719,7 +719,11 @@ private void requireLiveBox(T)(T* self)
 private void ensureIdentityTable(lua_State* L, int metaIdx)
 {
     metaIdx = raw.absIndex(L, metaIdx);
-    lua_getfield(L, metaIdx, "__lunarbind_identity");
+    // Internal metadata: raw access, so a metatable attached to the class
+    // metatable cannot run `__index` and longjmp out of D.
+    lua_pushlstring(L, "__lunarbind_identity".ptr,
+                    "__lunarbind_identity".length);
+    lua_rawget(L, metaIdx);
     if (lua_type(L, -1) == LUA_TTABLE)
         return;
 
@@ -730,8 +734,10 @@ private void ensureIdentityTable(lua_State* L, int metaIdx)
     lua_pushlstring(L, "v".ptr, 1);
     lua_rawset(L, -3);
     lua_setmetatable(L, -2);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, metaIdx, "__lunarbind_identity");
+    lua_pushlstring(L, "__lunarbind_identity".ptr,
+                    "__lunarbind_identity".length);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, metaIdx);
     // The identity table is left on top of the stack.
 }
 
@@ -889,14 +895,20 @@ private void setCompareOperator(T, bool inclusive)(lua_State* L)
 // compare equal.
 private void pushClassEq(lua_State* L)
 {
-    lua_getfield(L, LUA_REGISTRYINDEX, "__lunarbind_class_eq");
+    // Raw registry access: user code can obtain the registry through the debug
+    // library, and a metatable there must not run while D is on the stack.
+    lua_pushlstring(L, "__lunarbind_class_eq".ptr,
+                    "__lunarbind_class_eq".length);
+    lua_rawget(L, LUA_REGISTRYINDEX);
     if (lua_type(L, -1) == LUA_TFUNCTION)
         return;
 
     raw.pop(L, 1);
     pushCFunction(L, &classEq);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, LUA_REGISTRYINDEX, "__lunarbind_class_eq");
+    lua_pushlstring(L, "__lunarbind_class_eq".ptr,
+                    "__lunarbind_class_eq".length);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, LUA_REGISTRYINDEX);
 }
 
 // ---------------------------------------------------------------------------
@@ -1471,8 +1483,12 @@ struct LuaClass(T)
             return true;
 
         // A derived class metatable lists its base metatables. Accept those,
-        // but never a base userdata as an instance of a derived class.
-        lua_getfield(state.handle, -1, "__lunarbind_bases"); // [T meta, ud meta, bases]
+        // but never a base userdata as an instance of a derived class. Use raw
+        // access: the metatable is reachable from Lua, so a metatable attached
+        // to it must not run `__index` here.
+        lua_pushlstring(state.handle, "__lunarbind_bases".ptr,
+                        "__lunarbind_bases".length);
+        lua_rawget(state.handle, -2); // [T meta, ud meta, bases]
         if (lua_type(state.handle, -1) != LUA_TTABLE)
             return false;
         lua_pushvalue(state.handle, -3); // [T meta, ud meta, bases, T meta]
