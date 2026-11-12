@@ -949,6 +949,10 @@ unittest
         fractionalThrew = true;
     assert(fractionalThrew);
 
+    // An integral float is still a valid integer conversion.
+    L.setGlobal("whole_number", 3.0);
+    assert(L.getGlobal!int("whole_number") == 3);
+
     L.setGlobal("huge_number", 1e300);
     bool hugeThrew;
     try

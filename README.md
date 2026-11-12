@@ -606,10 +606,11 @@ bindings      hand-written, version-selected C API declarations
 `LuaState.open()` creates a reference-counted `StateCore` and records it in the
 Lua registry. `LuaState.wrap(L)` — used by every callback — looks that core up
 instead of creating a fresh handle, so `LuaRef`/`LuaTable`/`LuaFunction` values
-created inside a callback stay valid after the callback returns. The underlying
-`lua_State` is closed when the last handle and reference are released. Pushing a
-reference into a different Lua state throws `LuaStateException` instead of
-silently reading the wrong registry.
+created inside a callback stay valid after the callback returns. A state not
+created by lunarbind gets a non-owning wrapper; references made from it must not
+outlive the owner's `lua_State`. The underlying `lua_State` is closed when the
+last handle and reference are released. Pushing a reference into a different Lua
+state throws `LuaStateException` instead of silently reading the wrong registry.
 
 After the state is closed, `LuaState.handle` returns null and checked operations
 (`loadString`, `loadFile`, `eval`, `evalFile`, `doFile`, `globals`, `typeName`, `LuaTable.get`/`set`/`opApply`,
