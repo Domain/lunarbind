@@ -2737,15 +2737,36 @@ unittest
             "add: expected 2 arguments, got 1 argument");
     assert(sawArity);
 
-    // A defaulted parameter reports the accepted range.
+    // A defaulted parameter reports the accepted range under the Lua name.
     toLua!addDefault(L, "add_default");
     bool sawRange;
     try
         L.eval("return add_default()");
     catch (LuaException e)
         sawRange = e.msg.canFind(
-            "addDefault: expected between 1 and 2 arguments, got 0 arguments");
+            "add_default: expected between 1 and 2 arguments, got 0 arguments");
     assert(sawRange);
+
+    // Compile-time lambdas and runtime delegates also use the registration
+    // name rather than their D identifier.
+    registerFunction!((int x) { return x + 1; })(L, "inc_named");
+    bool sawLambda;
+    try
+        L.eval("return inc_named()");
+    catch (LuaException e)
+        sawLambda = e.msg.canFind(
+            "inc_named: expected 1 argument, got 0 arguments");
+    assert(sawLambda);
+
+    int delegate(int, int) subtract = (int a, int b) => a - b;
+    registerDelegate(L, "sub_named", subtract);
+    bool sawDelegate;
+    try
+        L.eval("return sub_named(1)");
+    catch (LuaException e)
+        sawDelegate = e.msg.canFind(
+            "sub_named: expected 2 arguments, got 1 argument");
+    assert(sawDelegate);
 
     auto fx = registerModule!(lunarbind.exportfixture)(L, "fx");
     bool sawModule;

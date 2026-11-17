@@ -139,21 +139,33 @@ private string argumentCount(size_t n)
     return n == 1 ? "1 argument" : to!string(n) ~ " arguments";
 }
 
+// Resolve the name used in arity errors. Called only on the failure path so
+// successful calls do not pay for reading the upvalue.
+private string arityName(alias F)(lua_State* L, int nameIndex)
+{
+    auto runtimeName = upvalueString(L, nameIndex);
+    static if (__traits(compiles, __traits(identifier, F)))
+        enum fallbackName = __traits(identifier, F);
+    else
+        enum fallbackName = F.stringof;
+    return runtimeName.length ? runtimeName : fallbackName;
+}
+
 // Throws a D exception instead of raising a Lua error: the caller's
 // `LuaState` and argument tuple must unwind normally before `lua_error` runs.
-private void checkArity(alias F)(int given)
+//
+// The name lives in a Lua upvalue (`nameIndex`) and is read only when the
+// arity check fails.
+private void checkArity(alias F)(int given, lua_State* L, int nameIndex)
 {
     import std.conv : to;
     enum required = requiredParamCount!F;
-    static if (__traits(compiles, __traits(identifier, F)))
-        enum name = __traits(identifier, F);
-    else
-        enum name = F.stringof;
     static if (variadicFunctionStyle!F == Variadic.typesafe)
     {
         if (given < required)
             throw new LuaArgumentException(
-                name ~ ": expected at least " ~ argumentCount(required)
+                arityName!F(L, nameIndex) ~ ": expected at least "
+                ~ argumentCount(required)
                 ~ ", got " ~ argumentCount(given));
     }
     else
@@ -163,22 +175,24 @@ private void checkArity(alias F)(int given)
         {
             static if (required == fixed)
                 throw new LuaArgumentException(
-                    name ~ ": expected " ~ argumentCount(fixed)
+                    arityName!F(L, nameIndex) ~ ": expected "
+                    ~ argumentCount(fixed)
                     ~ ", got " ~ argumentCount(given));
             else
                 throw new LuaArgumentException(
-                    name ~ ": expected between " ~ to!string(required)
+                    arityName!F(L, nameIndex) ~ ": expected between "
+                    ~ to!string(required)
                     ~ " and " ~ argumentCount(fixed)
                     ~ ", got " ~ argumentCount(given));
         }
     }
 }
 
-private int invokeAlias(alias F)(LuaState state)
+private int invokeAlias(alias F)(LuaState state, int nameIndex)
 {
     alias P = Parameters!F;
     auto nargs = cast(size_t) lua_gettop(state.handle);
-    checkArity!F(cast(int) nargs);
+    checkArity!F(cast(int) nargs, state.handle, nameIndex);
     Tuple!P args;
     fillCallArgs!F(state, args, nargs, 1);
     static if (is(ReturnType!F == void))
@@ -192,11 +206,11 @@ private int invokeAlias(alias F)(LuaState state)
     }
 }
 
-private int invokeValue(Dg)(LuaState state, Dg callable)
+private int invokeValue(Dg)(LuaState state, Dg callable, int nameIndex)
 {
     alias P = Parameters!Dg;
     auto nargs = cast(size_t) lua_gettop(state.handle);
-    checkArity!Dg(cast(int) nargs);
+    checkArity!Dg(cast(int) nargs, state.handle, nameIndex);
     Tuple!P args;
     fillCallArgs!Dg(state, args, nargs, 1);
     static if (is(ReturnType!Dg == void))
@@ -210,13 +224,23 @@ private int invokeValue(Dg)(LuaState state, Dg callable)
     }
 }
 
+// The registration name lives in a Lua string upvalue so arity errors can use
+// the Lua name instead of the D identifier.
+private string upvalueString(lua_State* L, int index) nothrow @nogc
+{
+    size_t len;
+    auto p = lua_tolstring(L, raw.upvalueIndex(index), &len);
+    // Lua strings are immutable, so exposing them as `string` is safe.
+    return p is null ? "" : cast(string) p[0 .. len];
+}
+
 /// Wrap a compile-time D function/lambda as a Lua C function.
 extern(C) int luaCFunctionWrapper(alias Func)(lua_State* L) nothrow
 {
     try
     {
         auto state = LuaState.wrap(L);
-        return invokeAlias!Func(state);
+        return invokeAlias!Func(state, 1);
     }
     catch (Throwable e)
     {
@@ -273,7 +297,7 @@ private extern(C) int luaDelegateWrapper(Dg)(lua_State* L) nothrow
         auto ud = lua_touserdata(L, raw.upvalueIndex(1));
         auto box = cast(CallbackBox!Dg)(*cast(void**) ud);
         auto state = LuaState.wrap(L);
-        return invokeValue(state, box.dg);
+        return invokeValue(state, box.dg, 2);
     }
     catch (Throwable e)
     {
@@ -296,7 +320,11 @@ private extern(C) int luaRawDelegateWrapper(Dg)(lua_State* L) nothrow
 }
 
 /// Push a runtime D delegate as a Lua function.
-void pushDelegate(Dg)(LuaState state, Dg dg)
+///
+/// `name` is used in arity error messages. When empty, the wrapper falls back
+/// to the D identifier for compile-time functions and to the anonymous
+/// function text for runtime delegates.
+void pushDelegate(Dg)(LuaState state, Dg dg, string name = "")
 {
     state.ensureOpen();
     static if (isRawLuaFunctionType!Dg)
@@ -320,7 +348,8 @@ void pushDelegate(Dg)(LuaState state, Dg dg)
         *ud = cast(void*) box;
         ensureCallbackMetatable(state);
         lua_setmetatable(state.handle, -2);
-        lua_pushcclosure(state.handle, &luaDelegateWrapper!Dg, 1);
+        lua_pushlstring(state.handle, name.ptr, name.length);
+        lua_pushcclosure(state.handle, &luaDelegateWrapper!Dg, 2);
     }
 }
 
@@ -329,7 +358,10 @@ void pushDelegate(Dg)(LuaState state, Dg dg)
 // ---------------------------------------------------------------------------
 
 /// Push a compile-time D function as a Lua function.
-void pushFunction(alias Func)(LuaState state)
+///
+/// `name` is used in arity error messages. When empty, the wrapper falls back
+/// to the D identifier.
+void pushFunction(alias Func)(LuaState state, string name = "")
 {
     state.ensureOpen();
     static if (isRawLuaFunction!Func)
@@ -341,21 +373,22 @@ void pushFunction(alias Func)(LuaState state)
         static assert(bindableVariadic!Func,
                       "lunarbind: only D typesafe variadics can be bound; " ~
                       "use a raw lua_CFunction for C-style variadics");
-        pushCFunction(state.handle, &luaCFunctionWrapper!Func);
+        lua_pushlstring(state.handle, name.ptr, name.length);
+        lua_pushcclosure(state.handle, &luaCFunctionWrapper!Func, 1);
     }
 }
 
 /// Register a compile-time D function as a global.
 void registerFunction(alias Func)(LuaState state, string name)
 {
-    pushFunction!Func(state);
+    pushFunction!Func(state, name);
     state.setGlobalChecked(name);
 }
 
 /// Register a runtime delegate as a global.
 void registerDelegate(Dg)(LuaState state, string name, Dg dg)
 {
-    pushDelegate(state, dg);
+    pushDelegate(state, dg, name);
     state.setGlobalChecked(name);
 }
 
@@ -368,7 +401,7 @@ void registerLibrary(Args...)(LuaState state, string libName)
     lua_createtable(state.handle, 0, cast(int)(Args.length / 2));
     static foreach (i; 0 .. Args.length / 2)
     {{
-        pushFunction!(Args[i * 2 + 1])(state);
+        pushFunction!(Args[i * 2 + 1])(state, Args[i * 2]);
         lua_setfield(state.handle, -2, toStringz(Args[i * 2]));
     }}
     state.setGlobalChecked(libName);

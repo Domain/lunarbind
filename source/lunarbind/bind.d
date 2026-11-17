@@ -96,9 +96,9 @@ private LuaFunction makeGlobalFunction(LuaState state, string name)
 private LuaFunction bindFunction(alias Symbol)(LuaState state, string name)
 {
     static if (is(typeof(Symbol) == function))
-        pushFunction!Symbol(state);
+        pushFunction!Symbol(state, name);
     else
-        pushDelegate(state, Symbol);
+        pushDelegate(state, Symbol, name);
     return makeGlobalFunction(state, name);
 }
 
@@ -190,7 +190,7 @@ auto toLua(T)(LuaState state, auto ref T value, string name)
     state.ensureOpen();
     static if (isSomeFunction!T)
     {
-        pushDelegate(state, value);
+        pushDelegate(state, value, name);
         return makeGlobalFunction(state, name);
     }
     else

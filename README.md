@@ -181,7 +181,9 @@ confirming state ownership yourself.
 Errors raised by bound D callbacks become ordinary Lua errors, so they can be
 caught with `pcall` or `LuaFunction.call`. Dispatch failures name the symbol and
 the supplied argument types, for example
-`no matching overload for add(string, integer)`.
+`no matching overload for add(string, integer)`. Arity failures use the name
+the function was registered under, for example
+`add_default: expected between 1 and 2 arguments, got 0 arguments`.
 
 Lua raises errors with `longjmp`, which skips D destructors. lunarbind builds
 the message inside the `try` body, lets normal D unwinding destroy temporary

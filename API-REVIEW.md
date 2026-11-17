@@ -41,20 +41,20 @@ types return the underlying `LuaRef`. That two-level meaning is intentional but
 worth documenting; if it causes confusion, v0.3 can rename the `int` accessor
 to `registryId`.
 
-## 3. Name-aware arity errors
+## 3. Name-aware arity errors (implemented)
 
-**Current.** Arity errors use the D identifier of the bound function, for
+**Previous.** Arity errors used the D identifier of the bound function, for
 example `addDefault: expected between 1 and 2 arguments, got 0 arguments`, even
 when the function was registered as `add_default`.
 
-**Proposal.** Store the runtime registration name in the callback box and use it
-in error messages. Free functions and module functions then report the name Lua
-callers actually see. Class and struct methods can resolve `@LuaExport` names at
-compile time and need no box change.
+**Change.** `pushFunction` and `pushDelegate` now take an optional name, stored
+as a Lua string upvalue. `registerFunction`, `registerDelegate`,
+`registerLibrary`, `toLua`, `LuaModule.addFunction` and the runtime-delegate
+`toLua` overload pass the registration name, so arity errors report the name Lua
+callers actually see. The cost is one interned string per registration.
 
-The cost is one `string` field per registered callback; the name already exists
-at the registration site, so no new allocation is required beyond the box that
-is allocated today.
+Overload sets keep their existing `no matching overload for <name>(...)`
+messages, which already use the Lua member name.
 
 ## 4. `raw.getMetatable` / `raw.setMetatable`
 

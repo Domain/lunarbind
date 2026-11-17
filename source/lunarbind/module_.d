@@ -262,12 +262,12 @@ struct LuaModule
                         && isSomeFunction!(typeof(Symbol)))
         {
             static if (is(typeof(Symbol) == function))
-                pushFunction!Symbol(_state);
+                pushFunction!Symbol(_state, name);
             else
-                pushDelegate(_state, Symbol);
+                pushDelegate(_state, Symbol, name);
         }
         else
-            pushDelegate(_state, Symbol);
+            pushDelegate(_state, Symbol, name);
         setTop(name);
         return this;
     }
