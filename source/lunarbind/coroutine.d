@@ -65,6 +65,8 @@ struct LuaThread
 
     LuaState state() { return _ref.state(); }
     LuaRef ref_() @nogc nothrow { return _ref; }
+    /// Registry reference handle for this coroutine.
+    @property LuaRef reference() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }
     void pushInto(LuaState target) { _ref.pushInto(target); }
 

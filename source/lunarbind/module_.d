@@ -220,6 +220,8 @@ struct LuaModule
     /// The underlying table handle.
     LuaTable table() { return _table; }
     LuaRef ref_() { return _table.ref_(); }
+    /// Registry reference handle for the module table.
+    @property LuaRef reference() { return _table.ref_(); }
     LuaState state() { return _state; }
 
     /// Push the module table onto the Lua stack.

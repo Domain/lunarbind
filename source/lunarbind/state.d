@@ -479,7 +479,8 @@ struct LuaState
     string typeName(int idx)
     {
         ensureOpen();
-        return lua_typename(handle, lua_type(handle, idx))[0 .. strlen(lua_typename(handle, lua_type(handle, idx)))].idup;
+        auto name = lua_typename(handle, lua_type(handle, idx));
+        return name[0 .. strlen(name)].idup;
     }
 
     // -- generic conversion (implemented in lunarbind.conv) --------------------
@@ -848,6 +849,12 @@ struct LuaRef
         return _holder.ref_;
     }
 
+    /// Registry reference id, or 0 when uninitialized.
+    @property int reference() const @nogc nothrow
+    {
+        return ref_();
+    }
+
     /// Push the referenced value onto the state's main stack.
     ///
     /// This is the allocation-free path and assumes the owning state is still
@@ -885,6 +892,12 @@ struct LuaRef
         StackGuard guard = StackGuard(s);
         push();
         return s.typeOf(-1);
+    }
+
+    /// Alias for `type`, matching `LuaState.typeOf`.
+    LuaType typeOf()
+    {
+        return type();
     }
 
     auto asTable() { import lunarbind.table : LuaTable; return LuaTable(this); }

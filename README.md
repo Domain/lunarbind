@@ -161,7 +161,7 @@ from real-time or `@nogc` code:
 - `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
   `LuaTable.length` (`LuaTable.set` validates the receiver and key and may
   throw)
-- `LuaRef.push` / `ref_` / `isNull`, `LuaFunction.push`, `LuaTable.state`
+- `LuaRef.push` / `reference` / `isNull`, `LuaFunction.push`, `LuaTable.state`
 - `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
 - copying a `LuaState` handle, `mainState` and `sharesState`
 
@@ -722,7 +722,8 @@ has no registered codec reports no matching overload.
    across the Lua `longjmp` boundary without leaking state references.
 2. **Tooling** (ongoing): richer documentation generation and editor
    integration.
-3. **API polish**: v0.2 review of names, attributes and error messages.
+3. **API polish**: v0.2 review of names, attributes and error messages; see
+   [`API-REVIEW.md`](API-REVIEW.md) for the current proposal list.
 
 ## License
 

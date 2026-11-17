@@ -31,6 +31,8 @@ struct LuaFunction
 
     LuaState state() @nogc nothrow { return _ref.state(); }
     LuaRef ref_() @nogc nothrow { return _ref; }
+    /// Registry reference handle for this function.
+    @property LuaRef reference() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }
     void pushInto(LuaState target) { _ref.pushInto(target); }
 
@@ -158,10 +160,17 @@ private void checkArity(alias F)(int given)
     {
         enum fixed = luaFixedCount!F;
         if (given < required || given > fixed)
-            throw new LuaArgumentException(
-                name ~ ": expected between " ~ to!string(required)
-                ~ " and " ~ argumentCount(fixed)
-                ~ ", got " ~ argumentCount(given));
+        {
+            static if (required == fixed)
+                throw new LuaArgumentException(
+                    name ~ ": expected " ~ argumentCount(fixed)
+                    ~ ", got " ~ argumentCount(given));
+            else
+                throw new LuaArgumentException(
+                    name ~ ": expected between " ~ to!string(required)
+                    ~ " and " ~ argumentCount(fixed)
+                    ~ ", got " ~ argumentCount(given));
+        }
     }
 }
 

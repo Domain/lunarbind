@@ -2648,12 +2648,15 @@ private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
     t.setUnchecked(1, s);
     t.push();
     t.length();
+    t.reference;
 
     f.push();
     f.ref_();
+    f.reference;
 
     r.push();
     r.ref_();
+    r.reference;
     r.isNull();
 
     v.pushUnchecked(L);
@@ -2662,6 +2665,29 @@ private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
     auto main = L.mainState();
     copy.isOpen();
     copy = main;
+}
+
+unittest
+{
+    // Handle types expose their registry reference; LuaRef.reference is the
+    // raw registry id behind ref_.
+    auto L = LuaState.open();
+    auto table_ = LuaTable.create(L);
+    table_.set("answer", 42);
+    assert(table_.reference.ref_() == table_.ref_().ref_());
+    assert(table_.reference.reference == table_.ref_().reference);
+
+    auto print_ = L.getGlobal!LuaFunction("print");
+    assert(print_.reference.ref_() == print_.ref_().ref_());
+
+    auto thread = LuaThread.create(L.loadString("return 1"));
+    assert(thread.reference.ref_() == thread.ref_().ref_());
+
+    auto module_ = LuaModule.create(L).addFunction!add("sum");
+    assert(module_.reference.ref_() == module_.ref_().ref_());
+
+    assert(table_.reference.typeOf() == LuaType.table);
+    assert(print_.reference.typeOf() == LuaType.function_);
 }
 
 unittest
@@ -2708,8 +2734,18 @@ unittest
         addFn.call!int(1);
     catch (LuaException e)
         sawArity = e.msg.canFind(
-            "add: expected between 2 and 2 arguments, got 1 argument");
+            "add: expected 2 arguments, got 1 argument");
     assert(sawArity);
+
+    // A defaulted parameter reports the accepted range.
+    toLua!addDefault(L, "add_default");
+    bool sawRange;
+    try
+        L.eval("return add_default()");
+    catch (LuaException e)
+        sawRange = e.msg.canFind(
+            "addDefault: expected between 1 and 2 arguments, got 0 arguments");
+    assert(sawRange);
 
     auto fx = registerModule!(lunarbind.exportfixture)(L, "fx");
     bool sawModule;
@@ -2812,22 +2848,25 @@ unittest
 
     auto before = L.referenceCount();
 
-    void expectError(string code)
+    string expectError(string code)
     {
-        bool threw;
         try
             L.doString(code);
-        catch (LuaException)
-            threw = true;
-        assert(threw, code);
-        assert(L.referenceCount() == before, code);
+        catch (LuaException e)
+        {
+            assert(L.referenceCount() == before, code);
+            return e.msg;
+        }
+        assert(false, code);
+        return null;
     }
 
     expectError("return Player('x')");          // constructor
     expectError("player:damage('x')");          // instance method
     expectError("AutoBound.overloaded(true)");  // static method
     expectError("return fx.fixtureAdd('x', 1)"); // module function
-    expectError("player.unknown = 1");          // unknown field
+    assert(expectError("player.unknown = 1").canFind(
+        "Player has no field 'unknown'"));
     expectError("return Vec(1) + 2");           // binary operator
     expectError("return Vec(1) < 2");           // comparison
 }
@@ -2909,7 +2948,9 @@ unittest
     assert(ref_.state().handle is null);
     assert(ref_.isNull());
     assert(ref_.ref_() == 0);
+    assert(ref_.reference == 0);
     expectClosed({ ref_.type(); }, "ref type");
+    expectClosed({ ref_.typeOf(); }, "ref typeOf");
     expectClosed({ ref_.asValue(); }, "ref value");
     expectClosed({ ref_.pushInto(L); }, "ref pushInto");
     expectClosed({ LuaRef.make(L, -1); }, "ref make");

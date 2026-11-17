@@ -1221,8 +1221,12 @@ private extern(C) int classNewIndex(T)(lua_State* L) nothrow
         }
 
         if (lua_type(L, 2) == LUA_TSTRING)
+        {
+            size_t len;
+            auto keyPtr = lua_tolstring(L, 2, &len);
             throw new LuaArgumentException(
-                "bad argument #2 to '" ~ T.stringof ~ "' (unknown field)");
+                T.stringof ~ " has no field '" ~ keyPtr[0 .. len].idup ~ "'");
+        }
 
         throw new LuaArgumentException(
             T.stringof ~ " does not support indexed assignment");
