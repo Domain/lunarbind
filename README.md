@@ -144,7 +144,8 @@ L.doFile("scripts/init.lua");                  // run and discard results
 
 `loadString`, `eval` and `doString` are the string equivalents. A missing or
 unreadable file raises `LuaException` with `LuaStatus.errFile`; syntax errors
-use `LuaStatus.errSyntax`.
+use `LuaStatus.errSyntax`. `LuaStatus.toString` gives a version-independent
+name, and `luaStatusFromInt` maps a raw C API status code back to the enum.
 
 ## Allocation-free fast paths
 
@@ -160,7 +161,8 @@ from real-time or `@nogc` code:
   the raw path and does not protect a `_G` `__newindex` metamethod)
 - `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
   `LuaTable.length` (`LuaTable.set` validates the receiver and key and may
-  throw)
+  throw; `LuaTable.lengthOf` is the checked length that honors `__len` on
+  Lua 5.2+ and throws on a raising or non-integer metamethod)
 - `LuaRef.push` / `reference` / `isNull`, `LuaFunction.push`, `LuaTable.state`
 - `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
 - copying a `LuaState` handle, `mainState` and `sharesState`

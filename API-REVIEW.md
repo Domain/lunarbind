@@ -66,26 +66,28 @@ small inline wrappers, and removing them would break users who call the raw
 layer directly. If the maintenance cost ever matters, deprecate them for one
 release before removal.
 
-## 5. `LuaTable.length` and `__len`
+## 5. `LuaTable.length` and `__len` (implemented)
 
-**Current.** `LuaTable.length` is a raw `@nogc nothrow` path that ignores
-`__len` and assumes a live state.
+**Previous.** `LuaTable.length` was a raw `@nogc nothrow` path that ignored
+`__len` and assumed a live state.
 
-**Proposal.** Add `lengthOf()` as the checked variant that honors `__len` and
-throws on a closed state or raising metamethod. Keep `length` as the documented
-fast path. A later release can rename `length` to `rawLength` if the fast path
-proves to be the rarer choice.
+**Change.** `LuaTable.lengthOf` is the checked counterpart: it honors `__len`
+on Lua 5.2+, throws `LuaException` when the metamethod raises, and
+`LuaTypeException` when it does not return an integer. Lua 5.1/LuaJIT have no
+table `__len`, so both paths return the raw length there. `length` remains the
+documented fast path.
 
-## 6. Status and type helpers
+## 6. Status and type helpers (partially implemented)
 
 **Current.** `LuaStatus` values follow the selected Lua version, and
 `LuaType.function_` carries a trailing underscore because `function` is a D
 keyword.
 
-**Proposal.** Add `LuaStatus.toString` and `LuaStatus.fromInt` so version
-differences stay visible at the edges instead of leaking into user code. Leave
-`LuaType.function_` alone; the underscore is the standard D workaround and
-renaming it would touch every dispatch site for little gain.
+**Change.** `LuaStatus.toString` returns a version-independent name and
+`luaStatusFromInt` maps a raw C API status code back to the enum, throwing
+`LuaArgumentException` for unknown values. `LuaType.function_` is unchanged;
+the underscore is the standard D workaround and renaming it would touch every
+dispatch site for little gain.
 
 ## 7. Documentation and stubs
 

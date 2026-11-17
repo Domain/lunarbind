@@ -214,6 +214,30 @@ struct LuaTable
         return raw.rawLen(state().handle, -1);
     }
 
+    /// Checked table length. Honors a `__len` metamethod on Lua 5.2+ and
+    /// throws `LuaException` if it raises. A `__len` result that is not an
+    /// integer throws `LuaTypeException`. Lua 5.1/LuaJIT ignore table
+    /// `__len` and return the raw length.
+    size_t lengthOf()
+    {
+        auto s = state();
+        s.ensureOpen();
+        StackGuard guard = StackGuard(s);
+        push();                                     // [table]
+        static if (LUA_VERSION_NUM == 501)
+            return raw.rawLen(s.handle, -1);
+        else
+        {
+            auto tableIndex = s.top();
+            pushCFunction(s.handle, &lenThunk);     // [table, thunk]
+            raw.insert(s.handle, tableIndex);       // [thunk, table]
+            auto status = raw.pcall(s.handle, 1, 1, 0);
+            if (status != LUA_OK)
+                throw tableError(s, status);
+            return popFrom!size_t(s, -1);
+        }
+    }
+
     /// Iterate the table. Supports `break`/`return` from the loop body.
     ///
     /// Each step runs under `pcall`, so `lua_next` raising

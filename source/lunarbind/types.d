@@ -4,7 +4,7 @@
 /// is independent of the C API.
 module lunarbind.types;
 
-import lunarbind.raw : LUA_ERRERR, LUA_ERRFILE, LUA_ERRGCMM;
+import lunarbind.raw : LUA_ERRERR, LUA_ERRFILE, LUA_ERRGCMM, LUA_VERSION_NUM;
 
 /// Lua status codes (LUA_OK / LUA_YIELD / LUA_ERR*).
 ///
@@ -20,6 +20,58 @@ enum LuaStatus : int
     errGcmm   = LUA_ERRGCMM, // only raised by Lua 5.2/5.3
     errErr    = LUA_ERRERR,
     errFile   = LUA_ERRFILE, // luaL_loadfile could not open/read the file
+}
+
+/// Human-readable name. Stable across Lua versions even though the numeric
+/// values are not. Callable as `status.toString()` through UFCS.
+string toString(LuaStatus status) pure nothrow @nogc
+{
+    switch (status)
+    {
+        case LuaStatus.ok:        return "ok";
+        case LuaStatus.yield:     return "yield";
+        case LuaStatus.errRun:    return "runtime error";
+        case LuaStatus.errSyntax: return "syntax error";
+        case LuaStatus.errMem:    return "out of memory";
+        static if (LUA_VERSION_NUM == 502 || LUA_VERSION_NUM == 503)
+            case LuaStatus.errGcmm: return "GC error";
+        case LuaStatus.errErr:    return "error in error handling";
+        case LuaStatus.errFile:   return "file error";
+        default:                  return "unknown status";
+    }
+}
+
+/// Convert a raw C API status code to `LuaStatus`.
+///
+/// Throws `LuaArgumentException` for values that are not status codes on the
+/// selected Lua version.
+LuaStatus luaStatusFromInt(int value)
+{
+    switch (value)
+    {
+        case 0: return LuaStatus.ok;
+        case 1: return LuaStatus.yield;
+        case 2: return LuaStatus.errRun;
+        case 3: return LuaStatus.errSyntax;
+        case 4: return LuaStatus.errMem;
+        static if (LUA_VERSION_NUM == 502 || LUA_VERSION_NUM == 503)
+        {
+            case 5: return LuaStatus.errGcmm;
+            case 6: return LuaStatus.errErr;
+            case 7: return LuaStatus.errFile;
+        }
+        else
+        {
+            case 5: return LuaStatus.errErr;
+            case 6: return LuaStatus.errFile;
+        }
+        default:
+        {
+            import std.conv : to;
+            throw new LuaArgumentException(
+                "unknown Lua status " ~ to!string(value));
+        }
+    }
 }
 
 /// Lua value kinds. `integer` is only reported on Lua 5.3+.

@@ -994,7 +994,39 @@ unittest
     auto tableValue = values[0];
     auto table = tableValue.ref_.asTable();
     assert(table.length() == 3);
+    assert(table.lengthOf() == 3);
     assert(table.get!int(2) == 2);
+
+    static if (LUA_VERSION_NUM >= 502)
+    {
+        // `lengthOf` honors `__len`; `length` stays the raw fast path.
+        auto customLength = L.eval(
+            "return setmetatable({}, { __len = function() return 7 end })"
+        )[0].ref_.asTable();
+        assert(customLength.length() == 0);
+        assert(customLength.lengthOf() == 7);
+
+        auto raisingLength = L.eval(
+            "return setmetatable({}, " ~
+            "{ __len = function() error('len boom') end })"
+        )[0].ref_.asTable();
+        bool sawLenError;
+        try
+            raisingLength.lengthOf();
+        catch (LuaException e)
+            sawLenError = e.msg.canFind("len boom");
+        assert(sawLenError);
+
+        auto badLength = L.eval(
+            "return setmetatable({}, { __len = function() return 'x' end })"
+        )[0].ref_.asTable();
+        bool sawBadLength;
+        try
+            badLength.lengthOf();
+        catch (LuaTypeException)
+            sawBadLength = true;
+        assert(sawBadLength);
+    }
 
     int sum;
     foreach (i, v; table)
@@ -2692,6 +2724,24 @@ unittest
 
 unittest
 {
+    // Status names are stable even though the numeric values vary by version.
+    assert(LuaStatus.ok.toString() == "ok");
+    assert(LuaStatus.errRun.toString() == "runtime error");
+    assert(LuaStatus.errFile.toString() == "file error");
+    assert(luaStatusFromInt(0) == LuaStatus.ok);
+    assert(luaStatusFromInt(cast(int) LuaStatus.errRun) == LuaStatus.errRun);
+    assert(luaStatusFromInt(cast(int) LuaStatus.errFile) == LuaStatus.errFile);
+
+    bool sawUnknown;
+    try
+        luaStatusFromInt(99);
+    catch (LuaArgumentException)
+        sawUnknown = true;
+    assert(sawUnknown);
+}
+
+unittest
+{
     // `pushUnchecked` is the allocation-free push path; `push` adds the
     // cross-state ownership check.
     auto L = LuaState.open();
@@ -2959,6 +3009,7 @@ unittest
     assert(table.state().handle is null);
     expectClosed({ table.get!int("x"); }, "table get");
     expectClosed({ table.set("x", 1); }, "table set");
+    expectClosed({ table.lengthOf(); }, "table lengthOf");
     expectClosed({ table.opApply((LuaValue key, LuaValue value) => 0); },
                  "table opApply");
 

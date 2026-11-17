@@ -997,6 +997,17 @@ package extern(C) int nextThunk(lua_State* L) nothrow
     return lua_next(L, 1) != 0 ? 2 : 0;
 }
 
+package extern(C) int lenThunk(lua_State* L) nothrow
+{
+    // `lua_len` runs `__len` on Lua 5.2+. Lua 5.1/LuaJIT have no table
+    // `__len`, so the raw length is the only length those versions define.
+    static if (LUA_VERSION_NUM == 501)
+        lua_pushinteger(L, cast(lua_Integer) lua_objlen(L, 1));
+    else
+        lua_len(L, 1);
+    return 1;
+}
+
 package LuaException tableError(LuaState s, int status)
 {
     auto msg = s.errorText(-1);
