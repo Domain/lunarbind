@@ -138,7 +138,7 @@ struct LuaValue
                 if (ref_.isNull())
                     lua_pushnil(state.handle);
                 else
-                    lua_rawgeti(state.handle, LUA_REGISTRYINDEX, ref_.ref_());
+                    lua_rawgeti(state.handle, LUA_REGISTRYINDEX, ref_.reference);
                 break;
             case LuaType.lightUserdata:
                 lua_pushlightuserdata(state.handle, userdataValue);

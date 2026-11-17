@@ -9,37 +9,36 @@ marks old spellings deprecated, and only removes them in a later release. No
 existing binding, codec, registration helper or raw C API name is removed in
 v0.2.
 
-## 1. Checked globals by default
+## 1. Checked globals by default (deprecation applied)
 
-**Current.** `LuaState.setGlobal(name, value)` is the raw fast path. It does
-not call `ensureOpen` and does not protect a `_G.__newindex` metamethod. The
-safe variant is the longer `setGlobalChecked`.
+**Previous.** `LuaState.setGlobal(name, value)` was the raw fast path. It did
+not call `ensureOpen` and did not protect a `_G.__newindex` metamethod. The safe
+variant was the longer `setGlobalChecked`.
 
-Most callers want the safe variant, so the short name is the unsafe one.
+Most callers want the safe variant, so the short name was the unsafe one.
 
-**Proposal.**
+**Change.**
 
-- Add `setGlobalUnchecked` as an alias for today's raw `setGlobal`.
-- Deprecate the raw `setGlobal` spelling in v0.2.
-- In v0.3, rename `setGlobalChecked` to `setGlobal` and remove the deprecated
-  raw spelling.
+- `setGlobalUnchecked` is now the explicit raw fast path.
+- `setGlobal` is deprecated and forwards to `setGlobalUnchecked`.
+- In v0.3, `setGlobalChecked` becomes `setGlobal`; `setGlobalChecked` stays as
+  an alias so no call site breaks.
 
 `LuaState.getGlobal` is already the checked read path; no change is needed.
 
-## 2. Deprecate `ref_`
+## 2. Deprecate `ref_` (implemented)
 
-**Current.** `LuaRef.ref_`, `LuaTable.ref_`, `LuaFunction.ref_`,
-`LuaThread.ref_` and `LuaModule.ref_` expose the registry handle.
+**Previous.** `LuaRef.ref_`, `LuaTable.ref_`, `LuaFunction.ref_`,
+`LuaThread.ref_` and `LuaModule.ref_` exposed the registry handle.
 
-**Proposal.** The `reference` property now exists on all handle types; v0.2
-marks `ref_` deprecated. The trailing underscore is a workaround for the `ref`
-keyword, and `reference` reads better in chained expressions such as
-`table.reference`.
+**Change.** `ref_` is deprecated on all five types in favor of the `reference`
+property. The trailing underscore was a workaround for the `ref` keyword, and
+`reference` reads better in chained expressions such as `table.reference`.
 
-`LuaRef.reference` currently returns the registry id (`int`), while the handle
-types return the underlying `LuaRef`. That two-level meaning is intentional but
-worth documenting; if it causes confusion, v0.3 can rename the `int` accessor
-to `registryId`.
+`LuaRef.reference` returns the registry id (`int`), while the handle types
+return the underlying `LuaRef`. That two-level meaning is intentional but worth
+documenting; if it causes confusion, v0.3 can rename the `int` accessor to
+`registryId`.
 
 ## 3. Name-aware arity errors (implemented)
 

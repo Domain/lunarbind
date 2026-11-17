@@ -61,21 +61,21 @@ unittest
             case 0:
             {
                 auto value = uniform(-1_000_000, 1_000_000, rng);
-                L.setGlobal("fuzz_value", value);
+                L.setGlobalUnchecked("fuzz_value", value);
                 assert(L.getGlobal!int("fuzz_value") == value);
                 break;
             }
             case 1:
             {
                 auto value = uniform(0.0, 1.0, rng);
-                L.setGlobal("fuzz_value", value);
+                L.setGlobalUnchecked("fuzz_value", value);
                 assert(L.getGlobal!double("fuzz_value") == value);
                 break;
             }
             case 2:
             {
                 auto value = uniform(0, 2, rng) == 0;
-                L.setGlobal("fuzz_value", value);
+                L.setGlobalUnchecked("fuzz_value", value);
                 assert(L.getGlobal!bool("fuzz_value") == value);
                 break;
             }
@@ -85,7 +85,7 @@ unittest
                 char[] value;
                 foreach (_; 0 .. length)
                     value ~= cast(char) uniform('a', 'z' + 1, rng);
-                L.setGlobal("fuzz_value", value.idup);
+                L.setGlobalUnchecked("fuzz_value", value.idup);
                 assert(L.getGlobal!string("fuzz_value") == value);
                 break;
             }
@@ -95,7 +95,7 @@ unittest
                 auto value = new int[length];
                 foreach (ref item; value)
                     item = uniform(-1_000, 1_000, rng);
-                L.setGlobal("fuzz_value", value);
+                L.setGlobalUnchecked("fuzz_value", value);
                 assert(L.getGlobal!(int[])("fuzz_value") == value);
                 break;
             }
@@ -110,7 +110,7 @@ unittest
                     table.set(j + 1, value);
                     expected[j + 1] = value;
                 }
-                L.setGlobal("fuzz_table", table);
+                L.setGlobalUnchecked("fuzz_table", table);
                 auto back = L.getGlobal!LuaTable("fuzz_table");
                 assert(back.length == count);
                 foreach (key, value; expected)
@@ -128,7 +128,7 @@ unittest
             {
                 auto delta = uniform(-100, 100, rng);
                 auto before = box.value;
-                L.setGlobal("fuzz_delta", delta);
+                L.setGlobalUnchecked("fuzz_delta", delta);
                 L.doString("fuzz_box:add(fuzz_delta)");
                 assert(box.value == before + delta);
                 break;
@@ -150,7 +150,7 @@ unittest
                 // conversion path; stay below 2^53 so double-based runtimes
                 // (Lua 5.1/5.2, LuaJIT) represent them exactly.
                 auto value = uniform(-4_000_000_000_000L, 4_000_000_000_000L, rng);
-                L.setGlobal("fuzz_value", value);
+                L.setGlobalUnchecked("fuzz_value", value);
                 assert(L.getGlobal!long("fuzz_value") == value);
                 break;
             }
@@ -165,7 +165,7 @@ unittest
                         key ~= cast(char) uniform('a', 'z' + 1, rng);
                     expected[key.idup] = uniform(-1_000, 1_000, rng);
                 }
-                L.setGlobal("fuzz_aa", expected);
+                L.setGlobalUnchecked("fuzz_aa", expected);
                 assert(L.getGlobal!(int[string])("fuzz_aa") == expected);
                 break;
             }

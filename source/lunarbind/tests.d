@@ -690,7 +690,7 @@ class StateAware
     int accumulate(LuaState L, int value, int factor = 1)
     {
         total += value * factor;
-        L.setGlobal("state_aware_total", total);
+        L.setGlobalUnchecked("state_aware_total", total);
         return total;
     }
 }
@@ -702,7 +702,7 @@ class StateConstructed
     this(LuaState L, int value = 4)
     {
         this.value = value;
-        L.setGlobal("state_constructed", value);
+        L.setGlobalUnchecked("state_constructed", value);
     }
 }
 
@@ -835,13 +835,13 @@ int stateSum(LuaState L, int base = 1, int[] values...)
     int result = base;
     foreach (value; values)
         result += value;
-    L.setGlobal("state_sum_result", result);
+    L.setGlobalUnchecked("state_sum_result", result);
     return result;
 }
 
 int coroutineCallback(LuaState L, int value)
 {
-    L.setGlobal("coroutine_callback_seen", value);
+    L.setGlobalUnchecked("coroutine_callback_seen", value);
     return value + 1;
 }
 
@@ -879,14 +879,14 @@ unittest
     auto L = LuaState.open();
 
     // scalars, strings, globals
-    L.setGlobal("answer", 42);
+    L.setGlobalUnchecked("answer", 42);
     assert(L.getGlobal!int("answer") == 42);
-    L.setGlobal("greeting", "hello");
+    L.setGlobalUnchecked("greeting", "hello");
     assert(L.getGlobal!string("greeting") == "hello");
 
     // Mutable char arrays round-trip through Lua strings as owned copies.
     auto mutableText = "mutable".dup;
-    L.setGlobal("mutable_text", mutableText);
+    L.setGlobalUnchecked("mutable_text", mutableText);
     auto copiedText = L.getGlobal!(char[])("mutable_text");
     assert(copiedText == "mutable");
     assert(copiedText.ptr !is mutableText.ptr);
@@ -895,7 +895,7 @@ unittest
 
     // 64-bit integers must survive conversion without truncation to 32 bits
     // (regression: lua_tointegerx was declared as returning int).
-    L.setGlobal("large", 500001500000L);
+    L.setGlobalUnchecked("large", 500001500000L);
     assert(L.getGlobal!long("large") == 500001500000L);
     L.doString("function large_sum(n) return n * (n + 3) / 2 end");
     auto largeSum = L.getGlobal!LuaFunction("large_sum");
@@ -904,7 +904,7 @@ unittest
 
     // Narrow integer conversions reject out-of-range values instead of
     // silently truncating.
-    L.setGlobal("wide", 5_000_000_000L);
+    L.setGlobalUnchecked("wide", 5_000_000_000L);
     bool wideThrew;
     try
         L.getGlobal!int("wide");
@@ -912,10 +912,10 @@ unittest
         wideThrew = e.msg.canFind("out of range");
     assert(wideThrew);
 
-    L.setGlobal("uint_value", 4_000_000_000L);
+    L.setGlobalUnchecked("uint_value", 4_000_000_000L);
     assert(L.getGlobal!uint("uint_value") == 4_000_000_000u);
 
-    L.setGlobal("negative", -1);
+    L.setGlobalUnchecked("negative", -1);
     bool unsignedThrew;
     try
         L.getGlobal!uint("negative");
@@ -926,11 +926,11 @@ unittest
     // Numeric strings convert consistently on every supported version. Lua
     // 5.1 lacks the *x conversion functions, so the compat helpers must use
     // lua_isnumber rather than checking the raw type.
-    L.setGlobal("numeric_string", "42");
+    L.setGlobalUnchecked("numeric_string", "42");
     assert(L.getGlobal!int("numeric_string") == 42);
     assert(L.getGlobal!double("numeric_string") == 42.0);
     assert(L.getGlobal!string("numeric_string") == "42");
-    L.setGlobal("not_numeric", "forty-two");
+    L.setGlobalUnchecked("not_numeric", "forty-two");
     bool stringIntThrew;
     try
         L.getGlobal!int("not_numeric");
@@ -941,7 +941,7 @@ unittest
     // Non-integral and out-of-range numbers are rejected on every version.
     // Lua 5.1/LuaJIT truncate in lua_tointeger and Lua 5.2 wraps
     // out-of-range floats, so the compat helper checks the value first.
-    L.setGlobal("fractional", 3.75);
+    L.setGlobalUnchecked("fractional", 3.75);
     bool fractionalThrew;
     try
         L.getGlobal!int("fractional");
@@ -950,10 +950,10 @@ unittest
     assert(fractionalThrew);
 
     // An integral float is still a valid integer conversion.
-    L.setGlobal("whole_number", 3.0);
+    L.setGlobalUnchecked("whole_number", 3.0);
     assert(L.getGlobal!int("whole_number") == 3);
 
-    L.setGlobal("huge_number", 1e300);
+    L.setGlobalUnchecked("huge_number", 1e300);
     bool hugeThrew;
     try
         L.getGlobal!long("huge_number");
@@ -963,7 +963,7 @@ unittest
 
     bool pushThrew;
     try
-        L.setGlobal("too_big", ulong.max);
+        L.setGlobalUnchecked("too_big", ulong.max);
     catch (LuaArgumentException e)
         pushThrew = e.msg.canFind("out of range");
     assert(pushThrew);
@@ -1035,7 +1035,7 @@ unittest
 
     // Weak tables drop entries when keys or values become unreachable.
     auto weakValues = LuaTable.createWeak(L, LuaWeakness.values);
-    L.setGlobal("weakValues", weakValues);
+    L.setGlobalUnchecked("weakValues", weakValues);
     L.doString("
         local key = {}
         local function setValue()
@@ -1053,7 +1053,7 @@ unittest
     ");
 
     auto weakKeys = LuaTable.createWeak(L, LuaWeakness.keys);
-    L.setGlobal("weakKeys", weakKeys);
+    L.setGlobalUnchecked("weakKeys", weakKeys);
     L.doString("
         local function setKey()
             local key = {}
@@ -1087,7 +1087,7 @@ unittest
     // Existing tables can be made weak in place.
     auto weakBoth = LuaTable.create(L);
     weakBoth.setWeakness(LuaWeakness.both);
-    L.setGlobal("weakBoth", weakBoth);
+    L.setGlobalUnchecked("weakBoth", weakBoth);
     L.doString("
         local function setEntry()
             local key = {}
@@ -1107,7 +1107,7 @@ unittest
     // setWeakness writes __mode with rawset, so a metatable's __newindex
     // cannot intercept the assignment or raise out of D.
     auto weakGuarded = LuaTable.create(L);
-    L.setGlobal("weakGuarded", weakGuarded);
+    L.setGlobalUnchecked("weakGuarded", weakGuarded);
     L.doString("
         setmetatable(weakGuarded, {
             __newindex = function() error('no writes') end,
@@ -1121,7 +1121,7 @@ unittest
     assert(f.call!int() == 42);
 
     auto mulValue = L.loadString("return function(a, b) return a * b end").call!LuaValue();
-    L.setGlobal("mul", mulValue);
+    L.setGlobalUnchecked("mul", mulValue);
     auto mul = L.getGlobal!LuaFunction("mul");
     assert(mul.call!int(6, 7) == 42);
 
@@ -1184,7 +1184,7 @@ unittest
          .call!LuaFunction());
     auto argumentTable = LuaTable.create(L);
     argumentTable["value"] = 99;
-    auto tableValues = argumentThread.resume(argumentTable.ref_.asValue());
+    auto tableValues = argumentThread.resume(argumentTable.reference.asValue());
     assert(tableValues.length == 1);
     assert(asInt(tableValues[0]) == 99);
 
@@ -1270,7 +1270,7 @@ unittest
     assert(asInt(adoptedValues[0]) == 42);
 
     // LuaThread handles push back into Lua as thread values.
-    L.setGlobal("adopted_thread", adopted);
+    L.setGlobalUnchecked("adopted_thread", adopted);
     auto adoptedRoundTrip = L.getGlobal!LuaValue("adopted_thread");
     assert(adoptedRoundTrip.kind == LuaType.thread);
     assert(LuaThread.fromValue(adoptedRoundTrip).status() == LuaStatus.ok);
@@ -1362,7 +1362,7 @@ unittest
 
     // Pushing the same D object again reuses the existing userdata, so the two
     // globals are rawequal (not merely __eq-equal).
-    L.setGlobal("player2", player);
+    L.setGlobalUnchecked("player2", player);
     auto sameUserdata = L.eval("return rawequal(player, player2)")[0];
     assert(sameUserdata.kind == LuaType.boolean && sameUserdata.booleanValue);
     auto equal = L.eval("return player == player2")[0];
@@ -1612,7 +1612,7 @@ unittest
                         toDelegate(&TaggedCodec.pop),
                         toDelegate(&TaggedCodec.check)));
     auto tagged = new Tagged("hello");
-    L.setGlobal("tagged", tagged);
+    L.setGlobalUnchecked("tagged", tagged);
     auto taggedResult = L.eval("return tagged");
     assert(taggedResult[0].stringValue == "hello");
     auto taggedBack = L.getGlobal!Tagged("tagged");
@@ -1621,7 +1621,7 @@ unittest
 
     // Removing the codec restores the normal LuaClass representation.
     unregisterCodec!Tagged(L);
-    L.setGlobal("taggedDefault", tagged);
+    L.setGlobalUnchecked("taggedDefault", tagged);
     auto taggedKind = L.eval("return type(taggedDefault)");
     assert(taggedKind[0].stringValue == "userdata");
     assert(L.getGlobal!Tagged("taggedDefault") is tagged);
@@ -1643,7 +1643,7 @@ unittest
     numberUnion.integer = 21;
     bool unionPushRejected;
     try
-        L.setGlobal("raw_union", numberUnion);
+        L.setGlobalUnchecked("raw_union", numberUnion);
     catch (LuaArgumentException e)
         unionPushRejected = e.msg.canFind("no codec registered for union");
     assert(unionPushRejected);
@@ -1653,7 +1653,7 @@ unittest
     auto topBefore = L.top();
     bool arrayPushRejected;
     try
-        L.setGlobal("raw_union_array", [numberUnion]);
+        L.setGlobalUnchecked("raw_union_array", [numberUnion]);
     catch (LuaArgumentException e)
         arrayPushRejected = e.msg.canFind("no codec registered for union");
     assert(arrayPushRejected);
@@ -1696,7 +1696,7 @@ unittest
         toDelegate(&CodecNumberCodec.push),
         toDelegate(&CodecNumberCodec.pop),
         toDelegate(&CodecNumberCodec.check)));
-    L.setGlobal("number_union", numberUnion);
+    L.setGlobalUnchecked("number_union", numberUnion);
     assert(L.getGlobal!int("number_union") == 21);
     assert(L.getGlobal!CodecNumber("number_union").integer == 21);
 
@@ -1724,7 +1724,7 @@ unittest
     assert(unionPopRejected);
 
     // Enums cross the boundary as their base integer values.
-    L.setGlobal("color", Color.green);
+    L.setGlobalUnchecked("color", Color.green);
     assert(L.getGlobal!Color("color") == Color.green);
     registerFunction!nextColor(L, "nextColor");
     registerFunction!colorName(L, "colorName");
@@ -1789,7 +1789,7 @@ unittest
     assert(LuaClass!Dog.isInstance(L, -1));
     L.pop(1);
 
-    L.setGlobal("animal", animal); // static type Animal: base metatable
+    L.setGlobalUnchecked("animal", animal); // static type Animal: base metatable
     auto animalValue = L.getGlobal!LuaValue("animal");
     animalValue.push(L);
     assert(LuaClass!Animal.isInstance(L, -1));
@@ -1922,7 +1922,7 @@ unittest
     // Struct type tables use renamed static methods; struct values use the
     // renamed fields and methods on their instance metatable.
     auto exportedStructType = toLua!ExportedStruct(L);
-    assert(exportedStructType.get!LuaFunction("make").ref_.type() == LuaType.function_);
+    assert(exportedStructType.get!LuaFunction("make").reference.type() == LuaType.function_);
     L.doString("
         local s = RenamedVec.make(3, 4)
         assert(s.x == 3)
@@ -1942,7 +1942,7 @@ unittest
         assert(exportedStructValue:mag() == 11)
     ");
     auto boundExportedStruct = LuaStruct!ExportedStruct.bind(L);
-    assert(boundExportedStruct.get!LuaFunction("make").ref_.type() == LuaType.function_);
+    assert(boundExportedStruct.get!LuaFunction("make").reference.type() == LuaType.function_);
 
     // Enum tables use the renamed type and members, and hide skipped members.
     auto exportedEnum = toLua!ExportedColor(L);
@@ -2142,10 +2142,10 @@ unittest
     assert(caught);
 
     // typed conversions
-    L.setGlobal("ints", [1, 2, 3]);
+    L.setGlobalUnchecked("ints", [1, 2, 3]);
     assert(L.getGlobal!(int[])("ints") == [1, 2, 3]);
     int[string] aa = ["a": 1, "b": 2];
-    L.setGlobal("aa", aa);
+    L.setGlobalUnchecked("aa", aa);
     auto roundTrip = L.getGlobal!(int[string])("aa");
     assert(roundTrip["a"] == 1 && roundTrip["b"] == 2);
 
@@ -2156,7 +2156,7 @@ unittest
     nanKeys[double.nan] = 1;
     bool nanKeyRejected;
     try
-        L.setGlobal("nan_keys", nanKeys);
+        L.setGlobalUnchecked("nan_keys", nanKeys);
     catch (LuaArgumentException e)
         nanKeyRejected = e.msg.canFind("NaN");
     assert(nanKeyRejected);
@@ -2166,7 +2166,7 @@ unittest
     nullKeys[null] = 2;
     bool nullKeyRejected;
     try
-        L.setGlobal("null_keys", nullKeys);
+        L.setGlobalUnchecked("null_keys", nullKeys);
     catch (LuaArgumentException e)
         nullKeyRejected = e.msg.canFind("nil");
     assert(nullKeyRejected);
@@ -2674,7 +2674,7 @@ private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
     L.protectedCall(0, 0, 0);
     L.gcCollect();
     L.gcBytes();
-    L.setGlobal("answer", 42);
+    L.setGlobalUnchecked("answer", 42);
 
     t.setUnchecked("x", i);
     t.setUnchecked(1, s);
@@ -2683,11 +2683,9 @@ private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
     t.reference;
 
     f.push();
-    f.ref_();
     f.reference;
 
     r.push();
-    r.ref_();
     r.reference;
     r.isNull();
 
@@ -2702,24 +2700,25 @@ private void nogcProbe(LuaState L, LuaTable t, LuaFunction f, LuaRef r,
 unittest
 {
     // Handle types expose their registry reference; LuaRef.reference is the
-    // raw registry id behind ref_.
+    // raw registry id.
     auto L = LuaState.open();
     auto table_ = LuaTable.create(L);
     table_.set("answer", 42);
-    assert(table_.reference.ref_() == table_.ref_().ref_());
-    assert(table_.reference.reference == table_.ref_().reference);
+    assert(table_.reference.reference != 0);
+    assert(table_.reference.state().sharesState(L));
+    assert(table_.reference.typeOf() == LuaType.table);
 
     auto print_ = L.getGlobal!LuaFunction("print");
-    assert(print_.reference.ref_() == print_.ref_().ref_());
+    assert(print_.reference.reference != 0);
+    assert(print_.reference.typeOf() == LuaType.function_);
 
     auto thread = LuaThread.create(L.loadString("return 1"));
-    assert(thread.reference.ref_() == thread.ref_().ref_());
+    assert(thread.reference.reference != 0);
+    assert(thread.reference.typeOf() == LuaType.thread);
 
     auto module_ = LuaModule.create(L).addFunction!add("sum");
-    assert(module_.reference.ref_() == module_.ref_().ref_());
-
-    assert(table_.reference.typeOf() == LuaType.table);
-    assert(print_.reference.typeOf() == LuaType.function_);
+    assert(module_.reference.reference != 0);
+    assert(module_.reference.typeOf() == LuaType.table);
 }
 
 unittest
@@ -2753,7 +2752,7 @@ unittest
     assert(L.get!int(-1) == 42);
     L.pop();
 
-    auto tableValue = LuaValue(LuaType.table, t.ref_());
+    auto tableValue = LuaValue(LuaType.table, t.reference);
     tableValue.pushUnchecked(L);
     assert(L.typeOf(-1) == LuaType.table);
     L.pop();
@@ -2948,7 +2947,7 @@ unittest
     // unprotected error path.
     auto L = LuaState.open();
     auto fn = toLua!add(L, "add");
-    auto bogus = fn.ref_().asTable();
+    auto bogus = fn.reference.asTable();
 
     bool threw;
     try
@@ -3019,7 +3018,6 @@ unittest
     LuaRef ref_;
     assert(ref_.state().handle is null);
     assert(ref_.isNull());
-    assert(ref_.ref_() == 0);
     assert(ref_.reference == 0);
     expectClosed({ ref_.type(); }, "ref type");
     expectClosed({ ref_.typeOf(); }, "ref typeOf");
@@ -3200,7 +3198,7 @@ unittest
     assert(threw);
 
     // The raw fast path still bypasses the check.
-    L.setGlobal("raw_global", 3);
+    L.setGlobalUnchecked("raw_global", 3);
     assert(L.getGlobal!int("raw_global") == 3);
 }
 

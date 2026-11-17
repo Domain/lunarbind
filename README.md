@@ -70,7 +70,7 @@ void main()
 {
     auto L = LuaState.open();
 
-    L.setGlobal("answer", 42);
+    L.setGlobalChecked("answer", 42);
     assert(L.getGlobal!int("answer") == 42);
 
     // D function -> Lua
@@ -157,8 +157,8 @@ from real-time or `@nogc` code:
 - `LuaState.push` for `bool`, integers, floating-point values, strings,
   `LuaString`, `const(char)[]`, `void*` and `Nullable` scalars (unsigned values
   wider than `lua_Integer` are range-checked and may throw)
-- `LuaState.setGlobal` (keys are pushed as length-delimited strings; this is
-  the raw path and does not protect a `_G` `__newindex` metamethod)
+- `LuaState.setGlobalUnchecked` (keys are pushed as length-delimited strings;
+  this is the raw path and does not protect a `_G` `__newindex` metamethod)
 - `LuaTable.setUnchecked` with primitive keys and values, `LuaTable.push` and
   `LuaTable.length` (`LuaTable.set` validates the receiver and key and may
   throw; `LuaTable.lengthOf` is the checked length that honors `__len` on
@@ -214,10 +214,11 @@ Global access follows the same rule. `LuaState.getGlobal` runs a `_G` `__index`
 metamethod under `pcall`, and `LuaState.setGlobalChecked` does the same for
 `__newindex`; registration helpers such as `toLua`, `LuaClass!T.setGlobal`,
 `LuaStruct!S.setGlobal`, `registerModule` and `LuaModule.setGlobal` use the
-checked path. `LuaState.setGlobal` remains the raw allocation-free fast path
-and deliberately skips those checks. Opening a standard library through
-`openLibraries` also runs the opener and its global registration under `pcall`,
-so a tampered `_G` or `package.loaded` raises `LuaException`.
+checked path. `LuaState.setGlobalUnchecked` remains the raw allocation-free
+fast path and deliberately skips those checks. The old `LuaState.setGlobal`
+spelling is deprecated and forwards to `setGlobalUnchecked`. Opening a standard
+library through `openLibraries` also runs the opener and its global registration
+under `pcall`, so a tampered `_G` or `package.loaded` raises `LuaException`.
 
 ## Unified registration with `toLua`
 

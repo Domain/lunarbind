@@ -28,9 +28,9 @@ struct LuaThread
     /// Create a coroutine from a Lua function.
     static LuaThread create(LuaFunction function_)
     {
-        if (function_.ref_().isNull())
+        if (function_.reference.isNull())
             throw new LuaStateException("cannot create a coroutine from a null function");
-        if (function_.ref_().type() != LuaType.function_)
+        if (function_.reference.type() != LuaType.function_)
             throw new LuaTypeException("cannot create a coroutine from a non-function value");
 
         auto s = function_.state();
@@ -40,7 +40,7 @@ struct LuaThread
         s.pop(1);
 
         // The new thread starts with the function on its stack.
-        function_.ref_().pushInto(LuaState.wrap(thread));
+        function_.reference.pushInto(LuaState.wrap(thread));
         return LuaThread(ref_, thread);
     }
 
@@ -64,6 +64,8 @@ struct LuaThread
     }
 
     LuaState state() { return _ref.state(); }
+    /// Deprecated; use `reference`.
+    deprecated("Use reference instead.")
     LuaRef ref_() @nogc nothrow { return _ref; }
     /// Registry reference handle for this coroutine.
     @property LuaRef reference() @nogc nothrow { return _ref; }

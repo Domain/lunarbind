@@ -30,6 +30,8 @@ struct LuaFunction
     }
 
     LuaState state() @nogc nothrow { return _ref.state(); }
+    /// Deprecated; use `reference`.
+    deprecated("Use reference instead.")
     LuaRef ref_() @nogc nothrow { return _ref; }
     /// Registry reference handle for this function.
     @property LuaRef reference() @nogc nothrow { return _ref; }

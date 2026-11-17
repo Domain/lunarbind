@@ -219,9 +219,11 @@ struct LuaModule
 
     /// The underlying table handle.
     LuaTable table() { return _table; }
-    LuaRef ref_() { return _table.ref_(); }
+    /// Deprecated; use `reference`.
+    deprecated("Use reference instead.")
+    LuaRef ref_() { return _table.reference; }
     /// Registry reference handle for the module table.
-    @property LuaRef reference() { return _table.ref_(); }
+    @property LuaRef reference() { return _table.reference; }
     LuaState state() { return _state; }
 
     /// Push the module table onto the Lua stack.

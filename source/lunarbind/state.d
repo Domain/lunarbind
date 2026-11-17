@@ -500,16 +500,27 @@ struct LuaState
         return popFrom!T(this, idx);
     }
 
-    /// Set a global. This is the raw fast path: it does not check that the
-    /// state is open and does not protect a `_G` `__newindex` metamethod.
-    /// Use `setGlobalChecked` when either matters.
-    void setGlobal(T)(string name, T value)
+    /// Set a global without checking that the state is open and without
+    /// protecting a `_G` `__newindex` metamethod.
+    ///
+    /// This is the allocation-free fast path. Use `setGlobalChecked` when
+    /// either matters.
+    void setGlobalUnchecked(T)(string name, T value)
     {
         import lunarbind.conv : pushTo;
         auto savedTop = top();
         scope(failure) setTop(savedTop);
         pushTo(this, value);
         raw.setGlobalString(handle, name);
+    }
+
+    /// Deprecated raw spelling. Use `setGlobalUnchecked` for the raw fast path
+    /// or `setGlobalChecked` for the protected path.
+    deprecated("Use setGlobalUnchecked for the raw fast path or " ~
+               "setGlobalChecked for the protected path.")
+    void setGlobal(T)(string name, T value)
+    {
+        setGlobalUnchecked(name, value);
     }
 
     /// Pop the top value and assign it to a global, running a `_G`
@@ -842,6 +853,8 @@ struct LuaRef
         return _holder.state;
     }
 
+    /// Deprecated; use `reference`.
+    deprecated("Use reference instead.")
     int ref_() const @nogc nothrow
     {
         if (!_holder.refCountedStore.isInitialized)
@@ -852,7 +865,9 @@ struct LuaRef
     /// Registry reference id, or 0 when uninitialized.
     @property int reference() const @nogc nothrow
     {
-        return ref_();
+        if (!_holder.refCountedStore.isInitialized)
+            return 0;
+        return _holder.ref_;
     }
 
     /// Push the referenced value onto the state's main stack.
