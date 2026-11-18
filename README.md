@@ -480,6 +480,36 @@ even when it carries `@LuaExport(skip: true)`; `skip` only filters automatic
 tables (module members, class/struct members and enum members).
 `samples/stubs.d` prints a complete stub file for a small annotated API.
 
+### Editor setup
+
+LuaLS (the `sumneko.lua` language server) loads files that start with `---@meta`
+from any path listed in `workspace.library`. Write the generated file into a
+dedicated folder and point the workspace at it with `.luarc.json`:
+
+```json
+{
+  "workspace.library": ["types/lunarbind.lua"]
+}
+```
+
+Generate the stubs from the same D build that registers the bindings, so names,
+overloads and `@LuaExport` filters cannot drift:
+
+```d
+// tools/gen_stubs.d
+void main()
+{
+    import std.file : write;
+    import lunarbind;
+    write("types/game.lua", luaStubs!(Player, Vec, Status, game)());
+}
+```
+
+Run that tool as a separate DUB configuration or CI step before packaging.
+The generated file declares globals, so Lua code that uses `require` should
+either bind the module as a global or add a hand-written `---@type` alias for
+the returned table.
+
 Custom representations are registered per state and override the default
 `LuaStruct!S`/`LuaClass!T` conversion:
 
