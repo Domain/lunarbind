@@ -69,6 +69,13 @@ jobs:
           key: ${{ runner.os }}-lua-${{ hashFiles('tools/test-lua.sh') }}
       - name: Build and test all profiles from source
         run: ./tools/test-lua.sh --compiler=${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }} ${{ matrix.dc == 'ldc-latest' && '--bench' || '' }}
+      - name: Upload generated stubs
+        if: matrix.dc == 'ldc-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lunarbind-stubs-linux
+          path: .lua/stubs/lunarbind.lua
+          if-no-files-found: error
 
   windows:
     name: windows / ${{ matrix.dc }}
@@ -92,6 +99,13 @@ jobs:
       - name: Build and test all profiles
         shell: pwsh
         run: ./tools/test-lua.ps1 -Compiler ${{ matrix.dc == 'dmd-latest' && 'dmd' || 'ldc2' }} ${{ matrix.dc == 'ldc-latest' && '-Bench' || '' }}
+      - name: Upload generated stubs
+        if: matrix.dc == 'ldc-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lunarbind-stubs-windows
+          path: .lua/stubs/lunarbind.lua
+          if-no-files-found: error
 
   macos:
     name: macos / ${{ matrix.config }}

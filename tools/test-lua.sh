@@ -5,8 +5,9 @@
 # its official git source. Static libraries are cached under .lua/linux/ and are
 # not committed. Pass --bench to also build and run bench/bench.d against each
 # profile after its tests pass. After the profile loop, samples/hello.d and
-# samples/stubs.d are compiled and run against the first profile so they cannot
-# drift from the public API.
+# samples/stubs.d are compiled and run against the first profile, and
+# tools/gen_stubs.d writes a validated stub file under .lua/stubs/, so none of
+# them can drift from the public API.
 set -euo pipefail
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -250,8 +251,34 @@ run_bench() {
         "$exe"
 }
 
+assert_stub_file() {
+    local path=$1 needle
+    if [[ ! -f $path ]]; then
+        echo "stub file not generated: $path" >&2
+        return 1
+    fi
+
+    for needle in \
+        '---@meta' \
+        '---@class Player' \
+        '---@class World' \
+        '---@enum Status' \
+        'function World.spawn(' \
+        'function add(a, b) end'; do
+        if ! grep -Fq -- "$needle" "$path"; then
+            echo "stub file is missing expected text: $needle" >&2
+            return 1
+        fi
+    done
+
+    if grep -Fq -- '---@class Packed' "$path"; then
+        echo "stub file ignored the Packed type override" >&2
+        return 1
+    fi
+}
+
 run_samples() {
-    local profile=$1 version lib sample exe
+    local profile=$1 version lib sample exe stub_exe stub_out
     local -a versions=() flags=() link=()
     case "$profile" in
         lua51) versions=(LUA_51) ;;
@@ -289,7 +316,7 @@ run_samples() {
     for sample in hello stubs; do
         exe="$runtime_root/$profile/sample-$sample"
         echo "  building sample: $sample"
-        if ! "$compiler" -i -I"$root/source" -O "${flags[@]}" \
+        if ! "$compiler" -i -I"$root/source" -I"$root" -O "${flags[@]}" \
             "$root/samples/$sample.d" "$lib" -of="$exe" "${link[@]}"; then
             echo "sample build failed: $sample ($profile)" >&2
             return 1
@@ -298,6 +325,27 @@ run_samples() {
             LD_LIBRARY_PATH="$runtime_root/$profile/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
             "$exe"
     done
+
+    stub_exe="$runtime_root/$profile/gen-stubs"
+    stub_out="$root/.lua/stubs/lunarbind.lua"
+    mkdir -p "$(dirname "$stub_out")"
+
+    echo "  building stub generator"
+    if ! "$compiler" -i -I"$root/source" -I"$root" -O "${flags[@]}" \
+        "$root/tools/gen_stubs.d" "$lib" -of="$stub_exe" "${link[@]}"; then
+        echo "stub generator build failed ($profile)" >&2
+        return 1
+    fi
+
+    if ! LIBRARY_PATH="$runtime_root/$profile/lib${LIBRARY_PATH:+:$LIBRARY_PATH}" \
+        LD_LIBRARY_PATH="$runtime_root/$profile/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        "$stub_exe" --out="$stub_out"; then
+        echo "stub generation failed ($profile)" >&2
+        return 1
+    fi
+
+    assert_stub_file "$stub_out"
+    echo "  stub output: $stub_out"
 }
 
 run_profile() {
@@ -340,7 +388,7 @@ for profile in "${profiles[@]}"; do
 done
 
 echo
-echo "== samples (${profiles[0]}) =="
+echo "== samples and stubs (${profiles[0]}) =="
 run_samples "${profiles[0]}"
 
 echo

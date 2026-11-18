@@ -12,7 +12,8 @@
     not committed. Use -Force to refresh them. Pass -Bench to also build and
     run bench/bench.d against each profile after its tests pass. After the
     profile loop, samples/hello.d and samples/stubs.d are compiled and run
-    against the first profile so they cannot drift from the public API.
+    against the first profile, and tools/gen_stubs.d writes a validated stub
+    file under .lua/stubs/, so none of them can drift from the public API.
 
 .EXAMPLE
     .\tools\test-lua.ps1
@@ -281,6 +282,37 @@ function Invoke-ProfileBench {
     }
 }
 
+function Assert-StubFile {
+    param([string]$Path)
+
+    if (!(Test-Path -LiteralPath $Path)) {
+        throw "stub file not generated: $Path"
+    }
+
+    $text = Get-Content -Raw -LiteralPath $Path
+    if ([string]::IsNullOrEmpty($text)) {
+        throw "stub file is empty: $Path"
+    }
+
+    $expected = @(
+        "---@meta",
+        "---@class Player",
+        "---@class World",
+        "---@enum Status",
+        "function World.spawn(",
+        "function add(a, b) end"
+    )
+    foreach ($needle in $expected) {
+        if (!$text.Contains($needle)) {
+            throw "stub file is missing expected text: $needle"
+        }
+    }
+
+    if ($text.Contains("---@class Packed")) {
+        throw "stub file ignored the Packed type override"
+    }
+}
+
 function Invoke-Samples {
     param([string]$Profile, [string]$Runtime)
 
@@ -290,7 +322,7 @@ function Invoke-Samples {
     $source = Join-Path $Root "source"
 
     $versionFlag = if ($Compiler -match "dmd") { "-version=" } else { "-d-version=" }
-    $compileArgs = @("-i", "-I$source", "-O")
+    $compileArgs = @("-i", "-I$source", "-I$Root", "-O")
     foreach ($version in Get-ProfileVersions $Profile) {
         $compileArgs += "$versionFlag$version"
     }
@@ -311,6 +343,26 @@ function Invoke-Samples {
                 throw "sample run failed: $sample ($Profile)"
             }
         }
+
+        $stubDir = Join-Path $RuntimeRoot "stubs"
+        $stubExe = Join-Path $Runtime "gen-stubs.exe"
+        $stubEntry = Join-Path $Root "tools\gen_stubs.d"
+        $stubOut = Join-Path $stubDir "lunarbind.lua"
+        New-Item -ItemType Directory -Force $stubDir | Out-Null
+
+        Write-Host "  building stub generator"
+        & $Compiler @compileArgs $stubEntry $lib "-of=$stubExe"
+        if ($LASTEXITCODE -ne 0) {
+            throw "stub generator build failed ($Profile)"
+        }
+
+        & $stubExe "--out=$stubOut"
+        if ($LASTEXITCODE -ne 0) {
+            throw "stub generation failed ($Profile)"
+        }
+
+        Assert-StubFile $stubOut
+        Write-Host "  stub output: $stubOut"
     }
     finally {
         $env:PATH = $oldPath
@@ -364,7 +416,7 @@ foreach ($profile in $Profiles) {
 if ($Profiles.Count -gt 0) {
     $sampleProfile = $Profiles[0]
     Write-Host ""
-    Write-Host "== samples ($sampleProfile) =="
+    Write-Host "== samples and stubs ($sampleProfile) =="
     Invoke-Samples $sampleProfile (Join-Path $RuntimeRoot $sampleProfile)
 }
 

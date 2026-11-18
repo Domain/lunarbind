@@ -478,7 +478,9 @@ write("mymodule.lua", builder.toString());
 As with explicit `toLua!symbol(L)`, listing a symbol explicitly includes it
 even when it carries `@LuaExport(skip: true)`; `skip` only filters automatic
 tables (module members, class/struct members and enum members).
-`samples/stubs.d` prints a complete stub file for a small annotated API.
+`samples/stubs.d` prints a complete stub file for a small annotated API; the
+annotated declarations live in `samples/stub_fixture.d` so both the sample and
+the generator tool below use the same fixture.
 
 ### Editor setup
 
@@ -493,22 +495,29 @@ dedicated folder and point the workspace at it with `.luarc.json`:
 ```
 
 Generate the stubs from the same D build that registers the bindings, so names,
-overloads and `@LuaExport` filters cannot drift:
+overloads and `@LuaExport` filters cannot drift. `tools/gen_stubs.d` is a
+working generator wired to `samples/stub_fixture.d`; copy it into your project
+and replace the fixture import and symbol list:
 
 ```d
-// tools/gen_stubs.d
-void main()
+// tools/gen_stubs.d (abridged)
+import lunarbind;
+import samples.stub_fixture;
+
+void main(string[] args)
 {
     import std.file : write;
-    import lunarbind;
-    write("types/game.lua", luaStubs!(Player, Vec, Status, game)());
+    write("types/game.lua", luaStubs!(Player, Vec, Status, add)());
 }
 ```
 
-Run that tool as a separate DUB configuration or CI step before packaging.
-The generated file declares globals, so Lua code that uses `require` should
-either bind the module as a global or add a hand-written `---@type` alias for
-the returned table.
+The repository's test scripts build the tool against the first Lua profile and
+write `.lua/stubs/lunarbind.lua`, then validate that the output starts with
+`---@meta` and contains the expected declarations (including the custom-codec
+override). CI uploads the validated file as the `lunarbind-stubs-*` artifact,
+so editor metadata is checked on every run. The generated file declares
+globals, so Lua code that uses `require` should either bind the module as a
+global or add a hand-written `---@type` alias for the returned table.
 
 Custom representations are registered per state and override the default
 `LuaStruct!S`/`LuaClass!T` conversion:
@@ -600,8 +609,9 @@ Both scripts default to all six profiles, cache runtimes under `.lua/`
 (git-ignored), and use `ldc2`/`dub` from `PATH` unless told otherwise
 (`--compiler` / `-Compiler`). No Lua binaries are committed. After the profile
 loop both scripts also compile and run `samples/hello.d` and `samples/stubs.d`
-against the first selected profile, so the samples are checked against the
-public API on every run.
+against the first selected profile, then build `tools/gen_stubs.d` and validate
+its output under `.lua/stubs/`, so the samples and editor stubs are checked
+against the public API on every run.
 
 CI runs the distro-package matrix on Linux, the source-built runtime matrix on
 Linux and Windows (LDC and DMD), and Homebrew-based builds on macOS (LDC).
@@ -776,8 +786,9 @@ has no registered codec reports no matching overload.
    stack, table and state paths are already `@nogc`; checked conversions stay
    allocating because they throw typed errors. Callback errors unwind safely
    across the Lua `longjmp` boundary without leaking state references.
-2. **Tooling** (ongoing): editor integration for generated EmmyLua stubs,
-   richer stub documentation and a CI artifact example.
+2. **Tooling** (ongoing): editor integration and CI artifacts for generated
+   EmmyLua stubs are in place (`tools/gen_stubs.d`, `.lua/stubs/`); richer stub
+   documentation remains.
 3. **API polish** (v0.2 complete): the review landed the checked/raw naming,
    name-aware arity errors, `lengthOf`, the status helpers and the `reference`
    property. v0.3 will give `setGlobal` its checked meaning and remove the
