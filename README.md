@@ -792,9 +792,9 @@ has no registered codec reports no matching overload.
    `@nogc`; checked conversions stay allocating because they throw typed
    errors. Callback errors unwind safely across the Lua `longjmp` boundary
    without leaking state references.
-2. **Tooling** (ongoing): editor integration and CI artifacts for generated
-   EmmyLua stubs are in place (`tools/gen_stubs.d`, `.lua/stubs/`); richer stub
-   documentation remains.
+2. **Tooling** (v0.2 complete): LuaLS editor setup, `tools/gen_stubs.d`,
+   constructor and multi-line stub documentation, and the validated
+   `.lua/stubs/` CI artifact are in place.
 3. **API polish** (v0.2 complete): the review landed the checked/raw naming,
    name-aware arity errors, `lengthOf`, the status helpers and the `reference`
    property. v0.3 will give `setGlobal` its checked meaning and remove the
