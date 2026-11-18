@@ -12,6 +12,7 @@ class Player
     @LuaExport(skip: true)
     int internalState;
 
+    @LuaExport(description: "Stores the initial hit points.")
     this(int health)
     {
         this.health = health;

@@ -248,6 +248,24 @@ package template luaMemberDescription(alias Parent, string member)
             directLuaExportMember!(Parent, member).description;
 }
 
+/// Compiler-generated members that must never appear in automatic tables.
+///
+/// Constructors, destructors and postblits are bound through dedicated
+/// registration paths, not as ordinary members. An explicit `@LuaExport` name
+/// on one of them must not turn it into a method or field.
+private template isSpecialMemberName(string member)
+{
+    enum isSpecialMemberName =
+        member == "__ctor"
+        || member == "__dtor"
+        || member == "__postblit"
+        || member == "__xdtor"
+        || member == "__xpostblit"
+        || member == "__invariant"
+        || member == "__require"
+        || member == "__ensure";
+}
+
 /// Default filter for names that are automatically exposed to Lua.
 ///
 /// Names starting with `_` and D/runtime implementation members are hidden
@@ -273,7 +291,8 @@ package template isExposedName(string member)
 package template isLuaExportedMember(alias Parent, string member)
 {
     enum bool isLuaExportedMember =
-        !luaExportOfMember!(Parent, member).skip
+        !isSpecialMemberName!member
+        && !luaExportOfMember!(Parent, member).skip
         && (luaExportOfMember!(Parent, member).name.length > 0
             || isExposedName!member);
 }

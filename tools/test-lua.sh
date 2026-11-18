@@ -261,6 +261,7 @@ assert_stub_file() {
     for needle in \
         '---@meta' \
         '---@class Player' \
+        '--- Stores the initial hit points.' \
         '---@class World' \
         '---@enum Status' \
         'function World.spawn(' \

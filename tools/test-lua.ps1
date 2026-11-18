@@ -297,6 +297,7 @@ function Assert-StubFile {
     $expected = @(
         "---@meta",
         "---@class Player",
+        "--- Stores the initial hit points.",
         "---@class World",
         "---@enum Status",
         "function World.spawn(",

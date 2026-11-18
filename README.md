@@ -397,7 +397,11 @@ Rules:
 - `@LuaExport("name")` replaces the D identifier in automatic tables. It also
   exposes names that are hidden by default (leading `_`, `toString`, ...).
 - `@LuaExport("name", "text")` also attaches `text` as documentation in
-  generated EmmyLua stubs. Descriptions do not affect runtime behavior.
+  generated EmmyLua stubs. Descriptions do not affect runtime behavior, and
+  multi-line text becomes one `---` comment line per source line.
+- A UDA on a constructor supplies documentation only. Constructors are called
+  through the class table (`Class(args...)`), so they never become methods or
+  fields of the class or its instances.
 - `@LuaExport(skip: true)` removes a member from automatic tables.
 - `@LuaExport` with no arguments is accepted and behaves like the default.
 - An explicit `toLua!symbol(L)` call ignores `skip` but honors `name`, so a

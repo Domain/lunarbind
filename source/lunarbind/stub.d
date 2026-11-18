@@ -37,6 +37,7 @@ import lunarbind.value : LuaValue;
 import std.algorithm : canFind;
 import std.array : Appender, join;
 import std.conv : to;
+import std.string : splitLines;
 import std.traits : BaseClassesTuple, FieldTypeTuple, isAssociativeArray,
                     isDynamicArray, isFloatingPoint, isInstanceOf, isIntegral,
                     isPointer, isSomeFunction, isSomeString, OriginalType,
@@ -242,6 +243,28 @@ private template countBindableConstructors(T, size_t i = 0)
         enum countBindableConstructors = 0;
 }
 
+// The first description attached to any constructor overload. Overloaded
+// constructors share one `---@overload` block, so one description covers it.
+private template constructorDescription(T, size_t i = 0)
+{
+    static if (__traits(compiles, __traits(getOverloads, T, "__ctor")))
+    {
+        alias ctors = __traits(getOverloads, T, "__ctor");
+        static if (i < ctors.length)
+        {
+            enum text = luaDescriptionOf!(ctors[i]);
+            static if (text.length)
+                enum constructorDescription = text;
+            else
+                enum constructorDescription = constructorDescription!(T, i + 1);
+        }
+        else
+            enum constructorDescription = "";
+    }
+    else
+        enum constructorDescription = "";
+}
+
 private template moduleMemberPublic(alias Module, string member)
 {
     static if (__traits(compiles,
@@ -343,8 +366,17 @@ struct LuaStubBuilder
 
     private void putDescription(string description)
     {
-        if (description.length)
-            putLine("--- " ~ description);
+        if (!description.length)
+            return;
+
+        foreach (line; description.splitLines)
+            putLine(line.length ? "--- " ~ line : "---");
+    }
+
+    // Trailing comments (`# ...`) must stay on one line.
+    private static string singleLine(string text)
+    {
+        return text.splitLines.join(" ");
     }
 
     private void putLine(string line)
@@ -572,6 +604,7 @@ struct LuaStubBuilder
                                && __traits(compiles,
                                            new T(Parameters!Ctor.init)))
                     {
+                        putDescription(luaDescriptionOf!Ctor);
                         putConstructorAnnotations!Ctor(name);
                         putLine("function " ~ name ~ "("
                                 ~ signatureParams!Ctor() ~ ") end");
@@ -581,6 +614,7 @@ struct LuaStubBuilder
             }
             else static if (count > 1)
             {
+                putDescription(constructorDescription!T);
                 static foreach (Ctor; __traits(getOverloads, T, "__ctor"))
                 {{
                     static if (overloadBindable!Ctor
@@ -619,12 +653,12 @@ struct LuaStubBuilder
                             putLine("---@field public " ~ fieldName ~ " "
                                     ~ typeText!(
                                         ReturnType!(propertyGetter!(T, member)))()
-                                    ~ (desc.length ? " # " ~ desc : ""));
+                                    ~ (desc.length ? " # " ~ singleLine(desc) : ""));
                         else
                             putLine("---@field public " ~ fieldName ~ " "
                                     ~ typeText!(
                                         Parameters!(propertySetter!(T, member))[0])()
-                                    ~ (desc.length ? " # " ~ desc : ""));
+                                    ~ (desc.length ? " # " ~ singleLine(desc) : ""));
                         emitted ~= fieldName;
                     }
                 }
@@ -637,7 +671,7 @@ struct LuaStubBuilder
                         auto desc = luaMemberDescription!(T, member);
                         putLine("---@field public " ~ fieldName ~ " "
                                 ~ typeText!(Unqual!FT)()
-                                ~ (desc.length ? " # " ~ desc : ""));
+                                ~ (desc.length ? " # " ~ singleLine(desc) : ""));
                         emitted ~= fieldName;
                     }
                 }
@@ -691,14 +725,14 @@ struct LuaStubBuilder
                             putLine("---@field public " ~ fieldName ~ " fun("
                                     ~ overloadParams!F(name) ~ ")"
                                     ~ (ret.length ? ": " ~ ret : "")
-                                    ~ (desc.length ? " # " ~ desc : ""));
+                                    ~ (desc.length ? " # " ~ singleLine(desc) : ""));
                         }
                     }}
                 }
                 else static if (count > 1)
                     putLine("---@field public " ~ fieldName ~ " fun(self: "
                             ~ name ~ ", ...): any"
-                            ~ (desc.length ? " # " ~ desc : ""));
+                            ~ (desc.length ? " # " ~ singleLine(desc) : ""));
             }
         }}
     }

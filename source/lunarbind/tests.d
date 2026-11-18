@@ -124,6 +124,7 @@ class Overloaded
 {
     string kind;
 
+    @LuaExport(description: "Creates an overloaded value.")
     this(int value)
     {
         kind = "int";
@@ -199,12 +200,13 @@ class AutoBound
 @LuaExport("RenamedBox", "A box with a renamed field.")
 class ExportedClass
 {
-    @LuaExport("v", "Stored value.")
+    @LuaExport("v", "Stored value.\nSecond line.")
     int value;
 
     @LuaExport(skip: true)
     int hiddenField;
 
+    @LuaExport("create", "Creates a box.\nStores the initial value.")
     this(int value)
     {
         this.value = value;
@@ -1903,6 +1905,8 @@ unittest
         assert(obj.value == nil)
         assert(obj.hiddenField == nil)
         assert(obj.internal == nil)
+        assert(obj.create == nil)
+        assert(RenamedBox.create == nil)
         assert(RenamedBox.internal == nil)
         assert(obj:_under() == 5)
         assert(obj.total == 9)
@@ -2363,7 +2367,12 @@ unittest
     assert(!exportedClassStub.canFind("value ===")); // renamed field only
     assert(exportedClassStub.canFind("--- A box with a renamed field."));
     assert(exportedClassStub.canFind(
-        "---@field public v integer # Stored value."));
+        "---@field public v integer # Stored value. Second line."));
+    assert(exportedClassStub.canFind(
+        "--- Creates a box.\n--- Stores the initial value.\n"
+        ~ "---@param value integer\n---@return RenamedBox"));
+    assert(!exportedClassStub.canFind("function RenamedBox.create"));
+    assert(!exportedClassStub.canFind("function RenamedBox.RenamedBox"));
     assert(exportedClassStub.canFind("--- Adds an amount to the value."));
     assert(exportedClassStub.canFind(
         "---@field public total integer # Current value."));
@@ -2464,6 +2473,8 @@ unittest
 
     // Overloaded constructors become ---@overload entries.
     auto overloadedCtorStub = luaStubs!Overloaded();
+    assert(overloadedCtorStub.canFind("--- Creates an overloaded value."));
+    assert(!overloadedCtorStub.canFind("function Overloaded.Overloaded"));
     assert(overloadedCtorStub.canFind("---@overload fun(value: integer): Overloaded"));
     assert(overloadedCtorStub.canFind("---@overload fun(value: string): Overloaded"));
     assert(overloadedCtorStub.canFind("---@overload fun(a: integer, b: integer): Overloaded"));
