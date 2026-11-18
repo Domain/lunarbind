@@ -55,7 +55,7 @@ callers actually see. The cost is one interned string per registration.
 Overload sets keep their existing `no matching overload for <name>(...)`
 messages, which already use the Lua member name.
 
-## 4. `raw.getMetatable` / `raw.setMetatable`
+## 4. `raw.getMetatable` / `raw.setMetatable` (resolved: keep)
 
 **Current.** `lunarbind.raw` declares both helpers, but nothing in lunarbind
 uses them.
@@ -76,7 +76,7 @@ on Lua 5.2+, throws `LuaException` when the metamethod raises, and
 table `__len`, so both paths return the raw length there. `length` remains the
 documented fast path.
 
-## 6. Status and type helpers (partially implemented)
+## 6. Status and type helpers (resolved)
 
 **Current.** `LuaStatus` values follow the selected Lua version, and
 `LuaType.function_` carries a trailing underscore because `function` is a D
@@ -88,13 +88,13 @@ keyword.
 the underscore is the standard D workaround and renaming it would touch every
 dispatch site for little gain.
 
-## 7. Documentation and stubs
+## 7. Documentation and stubs (implemented)
 
 Not API changes, but part of the same review:
 
-- Document the checked/raw split in one table in the README instead of
-  scattering it across sections.
-- Keep the stub generator's custom-codec overrides keyed by `typeid(T)`; that
+- The README now has a "Checked and raw paths" table that lists both entry
+  points side by side instead of scattering the split across sections.
+- The stub generator's custom-codec overrides stay keyed by `typeid(T)`; that
   has proven sufficient for unions and other non-default representations.
 - EmmyLua has no deprecation marker that maps cleanly to `@LuaExport(skip: true)`
   because skipped members are hidden entirely. A `deprecated` flag on

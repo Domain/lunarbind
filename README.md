@@ -178,6 +178,27 @@ would truncate. When you need a no-allocation path, validate with `typeOf` and
 read through the stack primitives, or use `LuaValue.pushUnchecked` after
 confirming state ownership yourself.
 
+### Checked and raw paths
+
+Most operations have a checked entry point and an explicit fast path. The
+checked entry point validates the receiver, runs metamethods under `pcall` and
+throws typed exceptions. The fast path is `@nogc`/`nothrow` where possible and
+assumes a live state and valid handles.
+
+| Operation | Checked | Raw / `@nogc` |
+| --- | --- | --- |
+| Read a global | `getGlobal` | — |
+| Write a global | `setGlobalChecked` | `setGlobalUnchecked` |
+| Read a table entry | `get`, `tryGet` | — |
+| Write a table entry | `set` | `setUnchecked` |
+| Table length | `lengthOf` | `length` |
+| Push a `LuaValue` | `push` | `pushUnchecked` |
+| Push a reference | `pushInto` | `push` |
+| Call a function | `LuaFunction.call` | — |
+
+`LuaState.setGlobal` and the handle `ref_` accessors are deprecated spellings;
+use `setGlobalUnchecked`/`setGlobalChecked` and `reference`.
+
 ## Error handling
 
 Errors raised by bound D callbacks become ordinary Lua errors, so they can be
@@ -725,10 +746,12 @@ has no registered codec reports no matching overload.
    stack, table and state paths are already `@nogc`; checked conversions stay
    allocating because they throw typed errors. Callback errors unwind safely
    across the Lua `longjmp` boundary without leaking state references.
-2. **Tooling** (ongoing): richer documentation generation and editor
-   integration.
-3. **API polish**: v0.2 review of names, attributes and error messages; see
-   [`API-REVIEW.md`](API-REVIEW.md) for the current proposal list.
+2. **Tooling** (ongoing): editor integration for generated EmmyLua stubs,
+   richer stub documentation and a CI artifact example.
+3. **API polish** (v0.2 complete): the review landed the checked/raw naming,
+   name-aware arity errors, `lengthOf`, the status helpers and the `reference`
+   property. v0.3 will give `setGlobal` its checked meaning and remove the
+   deprecated spellings; see [`API-REVIEW.md`](API-REVIEW.md).
 
 ## License
 
