@@ -1452,7 +1452,7 @@ struct LuaClass(T)
     static void setGlobal(LuaState state, string name, T obj)
     {
         push(state, obj);
-        state.setGlobalChecked(name);
+        state.setGlobal(name);
     }
 
     /// Read a global variable as a D object (null if nil).
@@ -1559,7 +1559,7 @@ struct LuaClass(T)
     {
         auto table = createTable(state);
         table.push();
-        state.setGlobalChecked(name);
+        state.setGlobal(name);
         return table;
     }
 
@@ -1703,7 +1703,7 @@ struct LuaStruct(S)
         if (is(Unqual!T == S))
     {
         push(state, value);
-        state.setGlobalChecked(name);
+        state.setGlobal(name);
     }
 
     /// Read a global variable as a struct value (S.init if nil).
@@ -1773,7 +1773,7 @@ struct LuaStruct(S)
     {
         auto table = createTable(state);
         table.push();
-        state.setGlobalChecked(name);
+        state.setGlobal(name);
         return table;
     }
 }

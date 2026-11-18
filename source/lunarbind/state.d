@@ -503,8 +503,8 @@ struct LuaState
     /// Set a global without checking that the state is open and without
     /// protecting a `_G` `__newindex` metamethod.
     ///
-    /// This is the allocation-free fast path. Use `setGlobalChecked` when
-    /// either matters.
+    /// This is the allocation-free fast path. Use `setGlobal` when either
+    /// matters.
     void setGlobalUnchecked(T)(string name, T value)
     {
         import lunarbind.conv : pushTo;
@@ -514,27 +514,19 @@ struct LuaState
         raw.setGlobalString(handle, name);
     }
 
-    /// Deprecated raw spelling. Use `setGlobalUnchecked` for the raw fast path
-    /// or `setGlobalChecked` for the protected path.
-    deprecated("Use setGlobalUnchecked for the raw fast path or " ~
-               "setGlobalChecked for the protected path.")
-    void setGlobal(T)(string name, T value)
-    {
-        setGlobalUnchecked(name, value);
-    }
-
     /// Pop the top value and assign it to a global, running a `_G`
     /// `__newindex` metamethod under `pcall`.
     ///
     /// Throws `LuaStateException` when the state is closed and `LuaException`
-    /// when the metamethod raises.
-    void setGlobalChecked(string name)
+    /// when the metamethod raises. Use `setGlobalUnchecked` for the raw,
+    /// allocation-free fast path.
+    void setGlobal(string name)
     {
         ensureOpen();
         auto valueIndex = top();
         if (valueIndex == 0)
             throw new LuaArgumentException(
-                "setGlobalChecked requires a value on the stack");
+                "setGlobal requires a value on the stack");
         scope(exit) setTop(valueIndex - 1);
         raw.pushGlobalTable(handle);                    // [value, globals]
         lua_pushlstring(handle, name.ptr, name.length); // [value, globals, key]
@@ -544,14 +536,26 @@ struct LuaState
     }
 
     /// Push `value` and assign it to a global with `__newindex` protection.
-    void setGlobalChecked(T)(string name, T value)
+    void setGlobal(T)(string name, T value)
     {
         import lunarbind.conv : pushTo;
         ensureOpen();
         auto savedTop = top();
         scope(exit) setTop(savedTop);
         pushTo(this, value);
-        setGlobalChecked(name);
+        setGlobal(name);
+    }
+
+    /// Alias for `setGlobal`, retained for call sites written against v0.2.
+    void setGlobalChecked(string name)
+    {
+        setGlobal(name);
+    }
+
+    /// Alias for `setGlobal`, retained for call sites written against v0.2.
+    void setGlobalChecked(T)(string name, T value)
+    {
+        setGlobal(name, value);
     }
 
     /// Read a global. A `_G` `__index` metamethod runs under `pcall`, so a

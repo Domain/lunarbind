@@ -84,7 +84,7 @@ private LuaRef makeGlobalRef(LuaState state, string name)
     auto ref_ = LuaRef.make(state, -1);
     state.pop(1);
     ref_.pushInto(state);
-    state.setGlobalChecked(name);
+    state.setGlobal(name);
     return ref_;
 }
 
@@ -210,6 +210,6 @@ LuaTable registerEnum(E)(LuaState state, string name = luaTypeName!E)
 {
     auto table = enumTable!E(state);
     table.push();
-    state.setGlobalChecked(name);
+    state.setGlobal(name);
     return table;
 }

@@ -3013,6 +3013,8 @@ unittest
     expectClosed({ L.loadString("return 1"); }, "loadString");
     expectClosed({ L.eval("return 1"); }, "eval");
     expectClosed({ L.globals(); }, "globals");
+    expectClosed({ L.setGlobal("x", 1); }, "setGlobal");
+    expectClosed({ L.setGlobalChecked("x", 1); }, "setGlobalChecked");
     expectClosed({ L.typeName(1); }, "typeName");
     expectClosed({ LuaTable.create(L); }, "table create");
 
@@ -3194,13 +3196,21 @@ unittest
 
     threw = false;
     try
-        L.setGlobalChecked("blocked_global", 1);
+        L.setGlobal("blocked_global", 1);
     catch (LuaException e)
         threw = e.msg.canFind("blocked global");
     assert(threw);
 
+    // setGlobalChecked remains an alias for the checked path.
     L.setGlobalChecked("allowed_global", 7);
     assert(L.getGlobal!int("allowed_global") == 7);
+
+    // The stack-value overload pops exactly the value it assigns.
+    auto savedTop = L.top();
+    L.push(11);
+    L.setGlobal("stack_global");
+    assert(L.top() == savedTop);
+    assert(L.getGlobal!int("stack_global") == 11);
 
     // Registration helpers use the checked path too.
     threw = false;

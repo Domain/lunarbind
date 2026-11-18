@@ -70,7 +70,7 @@ void main()
 {
     auto L = LuaState.open();
 
-    L.setGlobalChecked("answer", 42);
+    L.setGlobal("answer", 42);
     assert(L.getGlobal!int("answer") == 42);
 
     // D function -> Lua
@@ -189,7 +189,7 @@ assumes a live state and valid handles.
 | Operation | Checked | Raw / `@nogc` |
 | --- | --- | --- |
 | Read a global | `getGlobal` | — |
-| Write a global | `setGlobalChecked` | `setGlobalUnchecked` |
+| Write a global | `setGlobal` | `setGlobalUnchecked` |
 | Read a table entry | `get`, `tryGet` | — |
 | Write a table entry | `set` | `setUnchecked` |
 | Table length | `lengthOf` | `length` |
@@ -197,10 +197,11 @@ assumes a live state and valid handles.
 | Push a reference | `pushInto` | `push` |
 | Call a function | `LuaFunction.call` | — |
 
-`LuaState.setGlobal` and the handle `ref_` accessors are deprecated spellings;
-use `setGlobalUnchecked`/`setGlobalChecked` and `reference`. On `LuaRef`,
-`registryId` is the explicit name for the raw registry id; on handle types such
-as `LuaTable`, `reference` returns the underlying `LuaRef`.
+`LuaState.setGlobal` is the checked write path; `setGlobalChecked` remains an
+alias for call sites written against v0.2. The handle `ref_` accessors are
+deprecated spellings; use `reference`. On `LuaRef`, `registryId` is the
+explicit name for the raw registry id; on handle types such as `LuaTable`,
+`reference` returns the underlying `LuaRef`.
 
 ## Error handling
 
@@ -235,14 +236,14 @@ adding new keys may raise that exception. Associative-array conversion
 the current key produces a `LuaException` too.
 
 Global access follows the same rule. `LuaState.getGlobal` runs a `_G` `__index`
-metamethod under `pcall`, and `LuaState.setGlobalChecked` does the same for
+metamethod under `pcall`, and `LuaState.setGlobal` does the same for
 `__newindex`; registration helpers such as `toLua`, `LuaClass!T.setGlobal`,
 `LuaStruct!S.setGlobal`, `registerModule` and `LuaModule.setGlobal` use the
 checked path. `LuaState.setGlobalUnchecked` remains the raw allocation-free
-fast path and deliberately skips those checks. The old `LuaState.setGlobal`
-spelling is deprecated and forwards to `setGlobalUnchecked`. Opening a standard
-library through `openLibraries` also runs the opener and its global registration
-under `pcall`, so a tampered `_G` or `package.loaded` raises `LuaException`.
+fast path and deliberately skips those checks. `setGlobalChecked` is retained
+as an alias for `setGlobal`. Opening a standard library through
+`openLibraries` also runs the opener and its global registration under
+`pcall`, so a tampered `_G` or `package.loaded` raises `LuaException`.
 
 ## Unified registration with `toLua`
 
@@ -798,11 +799,11 @@ has no registered codec reports no matching overload.
 2. **Tooling** (v0.2 complete): LuaLS editor setup, `tools/gen_stubs.d`,
    constructor and multi-line stub documentation, and the validated
    `.lua/stubs/` CI artifact are in place.
-3. **API polish** (v0.2 complete): the review landed the checked/raw naming,
-   name-aware arity errors, `lengthOf`, the status helpers and the
-   `reference`/`registryId` accessors. v0.3 will give `setGlobal` its checked
-   meaning and remove the deprecated spellings; see
-   [`API-REVIEW.md`](API-REVIEW.md).
+3. **API polish** (v0.2 complete, v0.3 underway): the review landed the
+   checked/raw naming, name-aware arity errors, `lengthOf`, the status helpers
+   and the `reference`/`registryId` accessors. v0.3 gives `setGlobal` its
+   checked meaning, with `setGlobalChecked` kept as an alias, and removes the
+   remaining deprecated spellings; see [`API-REVIEW.md`](API-REVIEW.md).
 
 ## License
 

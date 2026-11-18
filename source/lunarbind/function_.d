@@ -384,14 +384,14 @@ void pushFunction(alias Func)(LuaState state, string name = "")
 void registerFunction(alias Func)(LuaState state, string name)
 {
     pushFunction!Func(state, name);
-    state.setGlobalChecked(name);
+    state.setGlobal(name);
 }
 
 /// Register a runtime delegate as a global.
 void registerDelegate(Dg)(LuaState state, string name, Dg dg)
 {
     pushDelegate(state, dg, name);
-    state.setGlobalChecked(name);
+    state.setGlobal(name);
 }
 
 /// Create a library table and register functions from (name, function) pairs.
@@ -406,5 +406,5 @@ void registerLibrary(Args...)(LuaState state, string libName)
         pushFunction!(Args[i * 2 + 1])(state, Args[i * 2]);
         lua_setfield(state.handle, -2, toStringz(Args[i * 2]));
     }}
-    state.setGlobalChecked(libName);
+    state.setGlobal(libName);
 }

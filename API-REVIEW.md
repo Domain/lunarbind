@@ -9,7 +9,7 @@ marks old spellings deprecated, and only removes them in a later release. No
 existing binding, codec, registration helper or raw C API name is removed in
 v0.2.
 
-## 1. Checked globals by default (deprecation applied)
+## 1. Checked globals by default (v0.3 implemented)
 
 **Previous.** `LuaState.setGlobal(name, value)` was the raw fast path. It did
 not call `ensureOpen` and did not protect a `_G.__newindex` metamethod. The safe
@@ -19,10 +19,11 @@ Most callers want the safe variant, so the short name was the unsafe one.
 
 **Change.**
 
-- `setGlobalUnchecked` is now the explicit raw fast path.
-- `setGlobal` is deprecated and forwards to `setGlobalUnchecked`.
-- In v0.3, `setGlobalChecked` becomes `setGlobal`; `setGlobalChecked` stays as
-  an alias so no call site breaks.
+- `setGlobalUnchecked` is the explicit raw fast path.
+- v0.2 deprecated the old `setGlobal` spelling while the checked name was
+  `setGlobalChecked`.
+- v0.3 makes `setGlobal` the checked path; `setGlobalChecked` remains an alias,
+  so no call site breaks.
 
 `LuaState.getGlobal` is already the checked read path; no change is needed.
 
