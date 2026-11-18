@@ -2716,6 +2716,7 @@ unittest
     auto table_ = LuaTable.create(L);
     table_.set("answer", 42);
     assert(table_.reference.reference != 0);
+    assert(table_.reference.registryId == table_.reference.reference);
     assert(table_.reference.state().sharesState(L));
     assert(table_.reference.typeOf() == LuaType.table);
 
@@ -3030,6 +3031,7 @@ unittest
     assert(ref_.state().handle is null);
     assert(ref_.isNull());
     assert(ref_.reference == 0);
+    assert(ref_.registryId == 0);
     expectClosed({ ref_.type(); }, "ref type");
     expectClosed({ ref_.typeOf(); }, "ref typeOf");
     expectClosed({ ref_.asValue(); }, "ref value");

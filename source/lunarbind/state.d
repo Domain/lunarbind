@@ -863,11 +863,22 @@ struct LuaRef
     }
 
     /// Registry reference id, or 0 when uninitialized.
+    ///
+    /// On a handle type such as `LuaTable`, `reference` returns the underlying
+    /// `LuaRef`; use `table.reference.registryId` for the raw id. `registryId`
+    /// is the explicit spelling on `LuaRef`; `reference` remains as a
+    /// compatibility alias.
     @property int reference() const @nogc nothrow
     {
         if (!_holder.refCountedStore.isInitialized)
             return 0;
         return _holder.ref_;
+    }
+
+    /// Registry reference id, or 0 when uninitialized.
+    @property int registryId() const @nogc nothrow
+    {
+        return reference;
     }
 
     /// Push the referenced value onto the state's main stack.

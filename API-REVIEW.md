@@ -40,6 +40,9 @@ return the underlying `LuaRef`. That two-level meaning is intentional but worth
 documenting; if it causes confusion, v0.3 can rename the `int` accessor to
 `registryId`.
 
+**v0.3 prep.** `LuaRef.registryId` is now available as the explicit raw-id
+accessor. `reference` remains an alias so existing code keeps compiling.
+
 ## 3. Name-aware arity errors (implemented)
 
 **Previous.** Arity errors used the D identifier of the bound function, for

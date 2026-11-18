@@ -163,7 +163,8 @@ from real-time or `@nogc` code:
   `LuaTable.length` (`LuaTable.set` validates the receiver and key and may
   throw; `LuaTable.lengthOf` is the checked length that honors `__len` on
   Lua 5.2+ and throws on a raising or non-integer metamethod)
-- `LuaRef.push` / `reference` / `isNull`, `LuaFunction.push`, `LuaTable.state`
+- `LuaRef.push` / `reference` / `registryId` / `isNull`, `LuaFunction.push`,
+  `LuaTable.state`
 - `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
 - copying a `LuaState` handle, `mainState` and `sharesState`
 
@@ -197,7 +198,9 @@ assumes a live state and valid handles.
 | Call a function | `LuaFunction.call` | — |
 
 `LuaState.setGlobal` and the handle `ref_` accessors are deprecated spellings;
-use `setGlobalUnchecked`/`setGlobalChecked` and `reference`.
+use `setGlobalUnchecked`/`setGlobalChecked` and `reference`. On `LuaRef`,
+`registryId` is the explicit name for the raw registry id; on handle types such
+as `LuaTable`, `reference` returns the underlying `LuaRef`.
 
 ## Error handling
 
@@ -796,9 +799,10 @@ has no registered codec reports no matching overload.
    constructor and multi-line stub documentation, and the validated
    `.lua/stubs/` CI artifact are in place.
 3. **API polish** (v0.2 complete): the review landed the checked/raw naming,
-   name-aware arity errors, `lengthOf`, the status helpers and the `reference`
-   property. v0.3 will give `setGlobal` its checked meaning and remove the
-   deprecated spellings; see [`API-REVIEW.md`](API-REVIEW.md).
+   name-aware arity errors, `lengthOf`, the status helpers and the
+   `reference`/`registryId` accessors. v0.3 will give `setGlobal` its checked
+   meaning and remove the deprecated spellings; see
+   [`API-REVIEW.md`](API-REVIEW.md).
 
 ## License
 
