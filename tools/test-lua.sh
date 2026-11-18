@@ -4,7 +4,8 @@
 # Lua 5.1-5.5 are built from the official lua.org sources. LuaJIT is built from
 # its official git source. Static libraries are cached under .lua/linux/ and are
 # not committed. Pass --bench to also build and run bench/bench.d against each
-# profile after its tests pass. After the profile loop, samples/hello.d and
+# profile after its tests pass. Pass --sanitize to build the unittests with
+# AddressSanitizer (LDC only). After the profile loop, samples/hello.d and
 # samples/stubs.d are compiled and run against the first profile, and
 # tools/gen_stubs.d writes a validated stub file under .lua/stubs/, so none of
 # them can drift from the public API.
@@ -20,6 +21,7 @@ compiler=${COMPILER:-ldc2}
 dub=${DUB:-dub}
 force=0
 bench=0
+sanitize=0
 
 usage() {
     cat <<'EOF'
@@ -31,6 +33,7 @@ Options:
   --dub PATH        dub executable (default: dub)
   --force           Re-download and rebuild cached runtimes
   --bench           Build and run bench/bench.d for each profile
+  --sanitize        Build unittests with AddressSanitizer (LDC only)
   -h, --help        Show this help
 EOF
 }
@@ -69,6 +72,10 @@ while (($#)); do
             bench=1
             shift
             ;;
+        --sanitize)
+            sanitize=1
+            shift
+            ;;
         -h | --help)
             usage
             exit 0
@@ -92,6 +99,11 @@ for tool in curl tar make "$dub" "$compiler"; do
         exit 1
     fi
 done
+
+if [[ $sanitize -eq 1 && $compiler == *dmd* ]]; then
+    echo "--sanitize requires an LDC compiler" >&2
+    exit 2
+fi
 
 mkdir -p "$download_root" "$source_root"
 
@@ -369,9 +381,16 @@ run_profile() {
         args+=(--force)
     fi
 
-    LIBRARY_PATH="$runtime${LIBRARY_PATH:+:$LIBRARY_PATH}" \
-        LD_LIBRARY_PATH="$runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-        "$dub" "${args[@]}"
+    if [[ $sanitize -eq 1 ]]; then
+        LIBRARY_PATH="$runtime${LIBRARY_PATH:+:$LIBRARY_PATH}" \
+            LD_LIBRARY_PATH="$runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            DFLAGS="-fsanitize=address -g" LDFLAGS="-fsanitize=address" \
+            "$dub" "${args[@]}"
+    else
+        LIBRARY_PATH="$runtime${LIBRARY_PATH:+:$LIBRARY_PATH}" \
+            LD_LIBRARY_PATH="$runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            "$dub" "${args[@]}"
+    fi
 
     if [[ $bench -eq 1 ]]; then
         run_bench "$profile" "$runtime"
@@ -383,6 +402,7 @@ echo "  root:     $root"
 echo "  compiler: $compiler"
 echo "  profiles: ${profiles[*]}"
 echo "  bench:    $([[ $bench -eq 1 ]] && echo yes || echo no)"
+echo "  sanitize: $([[ $sanitize -eq 1 ]] && echo address || echo no)"
 
 for profile in "${profiles[@]}"; do
     run_profile "$profile"

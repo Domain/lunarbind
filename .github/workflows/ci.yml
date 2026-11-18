@@ -77,6 +77,22 @@ jobs:
           path: .lua/stubs/lunarbind.lua
           if-no-files-found: error
 
+  asan:
+    name: asan / lua54
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+      - uses: actions/cache@v4
+        with:
+          path: .lua/linux
+          key: ${{ runner.os }}-lua-${{ hashFiles('tools/test-lua.sh') }}
+      - name: Build and test with AddressSanitizer
+        run: ./tools/test-lua.sh --profiles lua54 --sanitize
+
   windows:
     name: windows / ${{ matrix.dc }}
     runs-on: windows-latest

@@ -611,17 +611,18 @@ builds LuaJIT with MSVC:
 
 Both scripts default to all six profiles, cache runtimes under `.lua/`
 (git-ignored), and use `ldc2`/`dub` from `PATH` unless told otherwise
-(`--compiler` / `-Compiler`). No Lua binaries are committed. After the profile
-loop both scripts also compile and run `samples/hello.d` and `samples/stubs.d`
-against the first selected profile, then build `tools/gen_stubs.d` and validate
-its output under `.lua/stubs/`, so the samples and editor stubs are checked
-against the public API on every run.
+(`--compiler` / `-Compiler`). No Lua binaries are committed. Pass
+`--sanitize` to the Linux script to build the unittests with AddressSanitizer
+(LDC only). After the profile loop both scripts also compile and run
+`samples/hello.d` and `samples/stubs.d` against the first selected profile,
+then build `tools/gen_stubs.d` and validate its output under `.lua/stubs/`, so
+the samples and editor stubs are checked against the public API on every run.
 
 CI runs the distro-package matrix on Linux, the source-built runtime matrix on
-Linux and Windows (LDC and DMD), and Homebrew-based builds on macOS (LDC).
-The unittest build also runs a seeded randomized stress test
-(`source/lunarbind/fuzz.d`) over conversions, tables, functions, classes and
-structs on every profile.
+Linux and Windows (LDC and DMD), Homebrew-based builds on macOS (LDC), and an
+AddressSanitizer job on Linux (LDC, Lua 5.4). The unittest build also runs a
+seeded randomized stress test (`source/lunarbind/fuzz.d`) over conversions,
+tables, functions, classes and structs on every profile.
 
 If you already have Lua development libraries installed, plain `dub test` still
 works:
@@ -786,10 +787,11 @@ has no registered codec reports no matching overload.
 ## Roadmap
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
-   seeded randomized stress tests, and coverage-guided fuzzing. Primitive
-   stack, table and state paths are already `@nogc`; checked conversions stay
-   allocating because they throw typed errors. Callback errors unwind safely
-   across the Lua `longjmp` boundary without leaking state references.
+   seeded randomized stress tests, an AddressSanitizer job, and
+   coverage-guided fuzzing. Primitive stack, table and state paths are already
+   `@nogc`; checked conversions stay allocating because they throw typed
+   errors. Callback errors unwind safely across the Lua `longjmp` boundary
+   without leaking state references.
 2. **Tooling** (ongoing): editor integration and CI artifacts for generated
    EmmyLua stubs are in place (`tools/gen_stubs.d`, `.lua/stubs/`); richer stub
    documentation remains.
