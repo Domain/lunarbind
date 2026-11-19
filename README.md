@@ -314,10 +314,35 @@ injection rules as `registerFunction`. `registerModule!(some.module)(L, "name")`
 binds every public function in a D module as one Lua table, including
 overloads.
 
-D `...` declarations cannot be marshalled automatically because Lua values
-carry no C type information. For arbitrary or C-style variadic arguments, bind
-a raw `lua_CFunction` instead; it receives the Lua stack directly and returns
-the number of Lua results:
+A typesafe variadic (`T[] name...`) collects the remaining Lua arguments as
+`T`. Use `LuaValue[]` when the tail is heterogeneous; each value is read like
+`LuaValue.fromStack`, so tables, functions, userdata and threads become managed
+registry references:
+
+```d
+string valueKinds(LuaValue[] values...)
+{
+    string result;
+    foreach (i, value; values)
+    {
+        if (i > 0)
+            result ~= ",";
+        result ~= value.kind.to!string;
+    }
+    return result;
+}
+
+toLua!valueKinds(L);             // global `valueKinds`
+L.doString(`
+    -- Lua 5.3+; 5.1/5.2 report the first value as "number".
+    assert(valueKinds(1, "x", true, {}) == "integer,string,boolean,table")
+`);
+```
+
+C-style D `...` declarations still cannot be marshalled automatically because
+Lua values carry no C type information. For those, bind a raw `lua_CFunction`
+instead; it receives the Lua stack directly and returns the number of Lua
+results:
 
 ```d
 extern(C) int sumAll(lua_State* L) nothrow

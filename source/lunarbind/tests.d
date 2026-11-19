@@ -777,6 +777,18 @@ string joinVariadic(string separator, string[] parts...)
     return result;
 }
 
+string valueKinds(LuaValue[] values...)
+{
+    string result;
+    foreach (i, value; values)
+    {
+        if (i > 0)
+            result ~= ",";
+        result ~= value.kind.to!string;
+    }
+    return result;
+}
+
 string freePick(int value) { return "int"; }
 string freePick(string value) { return "string:" ~ value; }
 private int hiddenFree() { return 1; }
@@ -1289,6 +1301,7 @@ unittest
     registerFunction!addDefault(L, "add_default");
     registerFunction!sumVariadic(L, "sum_variadic");
     registerFunction!joinVariadic(L, "join_variadic");
+    registerFunction!valueKinds(L, "value_kinds");
     auto functionShape = L.eval("
         return add_default(1), add_default(1, 2),
                sum_variadic(), sum_variadic(1, 2, 3),
@@ -1299,6 +1312,15 @@ unittest
     assert(asInt(functionShape[2]) == 0);
     assert(asInt(functionShape[3]) == 6);
     assert(functionShape[4].stringValue == "a-b-c");
+
+    // A LuaValue[] typesafe variadic collects a heterogeneous Lua tail without
+    // a raw lua_CFunction. Reference values arrive as managed LuaValue refs.
+    auto valueKindsResult = L.eval("return value_kinds(1, 'x', true, {}, nil)");
+    static if (LUA_VERSION_NUM >= 503)
+        enum expectedKinds = "integer,string,boolean,table,nil";
+    else
+        enum expectedKinds = "number,string,boolean,table,nil";
+    assert(valueKindsResult[0].stringValue == expectedKinds);
 
     // Extra arguments beyond the declared fixed parameters are rejected.
     bool extraArgFailed;
