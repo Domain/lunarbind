@@ -93,6 +93,33 @@ jobs:
       - name: Build and test with AddressSanitizer
         run: ./tools/test-lua.sh --profiles lua54 --sanitize
 
+  fuzz:
+    name: fuzz / lua54
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-1.40.0
+      - uses: actions/cache@v4
+        with:
+          path: .lua/linux
+          key: ${{ runner.os }}-lua-${{ hashFiles('tools/test-lua.sh') }}
+      - name: Install libFuzzer runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-rt-18-dev
+      - name: Run coverage-guided fuzzer
+        run: ./tools/fuzz.sh --profile lua54 --max-total-time 120
+      - name: Upload fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lunarbind-fuzz-artifacts
+          path: .lua/fuzz/artifacts
+          if-no-files-found: ignore
+
   windows:
     name: windows / ${{ matrix.dc }}
     runs-on: windows-latest

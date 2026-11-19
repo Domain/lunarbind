@@ -5,7 +5,8 @@
 # its official git source. Static libraries are cached under .lua/linux/ and are
 # not committed. Pass --bench to also build and run bench/bench.d against each
 # profile after its tests pass. Pass --sanitize to build the unittests with
-# AddressSanitizer (LDC only). After the profile loop, samples/hello.d and
+# AddressSanitizer (LDC only). Pass --runtime-only to fetch/build the selected
+# runtimes without running tests. After the profile loop, samples/hello.d and
 # samples/stubs.d are compiled and run against the first profile, and
 # tools/gen_stubs.d writes a validated stub file under .lua/stubs/, so none of
 # them can drift from the public API.
@@ -22,6 +23,7 @@ dub=${DUB:-dub}
 force=0
 bench=0
 sanitize=0
+runtime_only=0
 
 usage() {
     cat <<'EOF'
@@ -34,6 +36,7 @@ Options:
   --force           Re-download and rebuild cached runtimes
   --bench           Build and run bench/bench.d for each profile
   --sanitize        Build unittests with AddressSanitizer (LDC only)
+  --runtime-only    Fetch/build the selected runtimes, then exit
   -h, --help        Show this help
 EOF
 }
@@ -76,6 +79,10 @@ while (($#)); do
             sanitize=1
             shift
             ;;
+        --runtime-only)
+            runtime_only=1
+            shift
+            ;;
         -h | --help)
             usage
             exit 0
@@ -93,12 +100,21 @@ if ((${#profiles[@]} == 0)); then
     exit 2
 fi
 
-for tool in curl tar make "$dub" "$compiler"; do
+for tool in curl tar make; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "required tool not found: $tool" >&2
         exit 1
     fi
 done
+
+if [[ $runtime_only -eq 0 ]]; then
+    for tool in "$dub" "$compiler"; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            echo "required tool not found: $tool" >&2
+            exit 1
+        fi
+    done
+fi
 
 if [[ $sanitize -eq 1 && $compiler == *dmd* ]]; then
     echo "--sanitize requires an LDC compiler" >&2
@@ -396,6 +412,23 @@ run_profile() {
         run_bench "$profile" "$runtime"
     fi
 }
+
+if [[ $runtime_only -eq 1 ]]; then
+    echo "lunarbind Lua runtime setup"
+    echo "  root:     $root"
+    echo "  profiles: ${profiles[*]}"
+    for profile in "${profiles[@]}"; do
+        case "$profile" in
+            luajit) build_luajit ;;
+            lua51 | lua52 | lua53 | lua54 | lua55) build_lua "$profile" ;;
+            *)
+                echo "unknown profile: $profile" >&2
+                exit 1
+                ;;
+        esac
+    done
+    exit 0
+fi
 
 echo "lunarbind Lua runtime test"
 echo "  root:     $root"

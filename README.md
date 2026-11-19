@@ -2,13 +2,14 @@
 
 **A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.5.
 
-> Status: **early scaffold (v0.1)**. The core API, conversion layer, callbacks and
-> a first userdata/object model are implemented and compile with LDC 1.43 and
-> DMD 2.111 against Lua 5.1–5.5 API profiles. The runtime smoke tests pass
-> against Lua 5.1–5.5 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD)
-> using the bundled test scripts. References created inside callbacks share the
-> owner state core, and cross-state use is rejected. The public API is not frozen
-> yet.
+> Status: **v0.2 complete, v0.3 underway.** The core API, conversion layer,
+> callbacks, userdata/object model, module builder, stub generator and the v0.2
+> API polish are implemented and compile with LDC 1.43 and DMD 2.111 against
+> Lua 5.1–5.5 API profiles. The full unittest suite passes against Lua 5.1–5.5
+> and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD), and CI also runs
+> macOS, AddressSanitizer and coverage-guided fuzzing jobs. References created
+> inside callbacks share the owner state core, and cross-state use is rejected.
+> The public API is not frozen yet.
 
 ## Why another binding?
 
@@ -50,6 +51,8 @@ source/lunarbind/
   coroutine.d    LuaThread: create/fromValue/resume/resumeFrom/status coroutine handles
   object.d       LuaClass!T / LuaStruct!S: D objects <-> Lua userdata + metatable
   tests.d        runtime smoke tests (compiled under -unittest)
+fuzz/
+  fuzz_target.d  coverage-guided libFuzzer target for conversions and bindings
 ```
 
 ## Quick start
@@ -623,10 +626,11 @@ then build `tools/gen_stubs.d` and validate its output under `.lua/stubs/`, so
 the samples and editor stubs are checked against the public API on every run.
 
 CI runs the distro-package matrix on Linux, the source-built runtime matrix on
-Linux and Windows (LDC and DMD), Homebrew-based builds on macOS (LDC), and an
-AddressSanitizer job on Linux (LDC, Lua 5.4). The unittest build also runs a
-seeded randomized stress test (`source/lunarbind/fuzz.d`) over conversions,
-tables, functions, classes and structs on every profile.
+Linux and Windows (LDC and DMD), Homebrew-based builds on macOS (LDC), an
+AddressSanitizer job on Linux (LDC, Lua 5.4), and a short coverage-guided
+fuzzing job on Linux (LDC, Lua 5.4). The unittest build also runs a seeded
+randomized stress test (`source/lunarbind/fuzz.d`) over conversions, tables,
+functions, classes and structs on every profile.
 
 If you already have Lua development libraries installed, plain `dub test` still
 works:
@@ -661,6 +665,24 @@ The results are useful for relative comparisons (such as the cost a binding
 call adds over a pure-Lua call) and for spotting regressions between lunarbind
 versions, not as absolute performance guarantees. CI runs the benchmark on the
 LDC leg of the Linux and Windows runtime matrices.
+
+### Fuzzing
+
+`fuzz/fuzz_target.d` is a coverage-guided libFuzzer target over conversions,
+tables, functions, classes, structs, enums, weak tables and coroutines. It
+requires LDC because it uses the `ldc.libfuzzer` mixin. `tools/fuzz.sh` links
+the compiler-rt fuzzer runtime matching LDC's LLVM version, downloads the
+matching `libclang-rt-*-dev` package when necessary, and builds the cached Lua
+runtime on demand with `tools/test-lua.sh --runtime-only`:
+
+```bash
+./tools/fuzz.sh --profile lua54 --max-total-time 60
+```
+
+AddressSanitizer is enabled by default; pass `--no-sanitize` for a faster run,
+or `--runs N` to execute a fixed number of inputs. Every input uses a fresh
+`LuaState`, and the generated corpus and crash artifacts live under the
+git-ignored `.lua/fuzz/` directory.
 
 The module has **no D dependencies** beyond the D runtime, so `dub build` does
 not need network access. `dub test` links against the selected Lua library.
@@ -791,11 +813,11 @@ has no registered codec reports no matching overload.
 ## Roadmap
 
 1. **Stability** (ongoing): CI runtime matrix (Lua 5.1–5.5 + LuaJIT; LDC/DMD),
-   seeded randomized stress tests, an AddressSanitizer job, and
-   coverage-guided fuzzing. Primitive stack, table and state paths are already
-   `@nogc`; checked conversions stay allocating because they throw typed
-   errors. Callback errors unwind safely across the Lua `longjmp` boundary
-   without leaking state references.
+   seeded randomized stress tests, an AddressSanitizer job, and a
+   coverage-guided libFuzzer target with a CI smoke run. Primitive stack,
+   table and state paths are already `@nogc`; checked conversions stay
+   allocating because they throw typed errors. Callback errors unwind safely
+   across the Lua `longjmp` boundary without leaking state references.
 2. **Tooling** (v0.2 complete): LuaLS editor setup, `tools/gen_stubs.d`,
    constructor and multi-line stub documentation, and the validated
    `.lua/stubs/` CI artifact are in place.
