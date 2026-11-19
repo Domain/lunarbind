@@ -95,7 +95,9 @@ jobs:
 
   fuzz:
     name: fuzz / lua54
-    runs-on: ubuntu-latest
+    # LDC 1.40.0 uses LLVM 19, matching libclang-rt-19-dev. Pin the image so
+    # the matching compiler-rt package stays available if ubuntu-latest moves.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -109,7 +111,7 @@ jobs:
       - name: Install libFuzzer runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y libclang-rt-18-dev
+          sudo apt-get install -y libclang-rt-19-dev
       - name: Run coverage-guided fuzzer
         run: ./tools/fuzz.sh --profile lua54 --max-total-time 120
       - name: Upload fuzz artifacts
