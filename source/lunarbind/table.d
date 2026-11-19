@@ -120,9 +120,6 @@ struct LuaTable
     }
 
     LuaState state() @nogc nothrow { return _ref.state(); }
-    /// Deprecated; use `reference`.
-    deprecated("Use reference instead.")
-    LuaRef ref_() @nogc nothrow { return _ref; }
     /// Registry reference handle for this table.
     @property LuaRef reference() @nogc nothrow { return _ref; }
     void push() @nogc nothrow { _ref.push(); }

@@ -857,21 +857,12 @@ struct LuaRef
         return _holder.state;
     }
 
-    /// Deprecated; use `reference`.
-    deprecated("Use reference instead.")
-    int ref_() const @nogc nothrow
-    {
-        if (!_holder.refCountedStore.isInitialized)
-            return 0;
-        return _holder.ref_;
-    }
-
     /// Registry reference id, or 0 when uninitialized.
     ///
     /// On a handle type such as `LuaTable`, `reference` returns the underlying
     /// `LuaRef`; use `table.reference.registryId` for the raw id. `registryId`
-    /// is the explicit spelling on `LuaRef`; `reference` remains as a
-    /// compatibility alias.
+    /// is the explicit spelling on `LuaRef`; `reference` is the shorter alias
+    /// kept for readable chained expressions.
     @property int reference() const @nogc nothrow
     {
         if (!_holder.refCountedStore.isInitialized)

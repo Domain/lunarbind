@@ -27,7 +27,7 @@ Most callers want the safe variant, so the short name was the unsafe one.
 
 `LuaState.getGlobal` is already the checked read path; no change is needed.
 
-## 2. Deprecate `ref_` (implemented)
+## 2. Deprecate `ref_` (v0.3 removed)
 
 **Previous.** `LuaRef.ref_`, `LuaTable.ref_`, `LuaFunction.ref_`,
 `LuaThread.ref_` and `LuaModule.ref_` exposed the registry handle.
@@ -41,8 +41,10 @@ return the underlying `LuaRef`. That two-level meaning is intentional but worth
 documenting; if it causes confusion, v0.3 can rename the `int` accessor to
 `registryId`.
 
-**v0.3 prep.** `LuaRef.registryId` is now available as the explicit raw-id
-accessor. `reference` remains an alias so existing code keeps compiling.
+**v0.3.** `LuaRef.registryId` is the explicit raw-id accessor, and the five
+deprecated `ref_` properties were removed. `reference` remains as the shorter
+alias: on `LuaRef` it returns the registry id, and on the handle types it
+returns the underlying `LuaRef`.
 
 ## 3. Name-aware arity errors (implemented)
 

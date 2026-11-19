@@ -2,14 +2,16 @@
 
 **A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.5.
 
-> Status: **v0.2 complete, v0.3 underway.** The core API, conversion layer,
-> callbacks, userdata/object model, module builder, stub generator and the v0.2
-> API polish are implemented and compile with LDC 1.43 and DMD 2.111 against
+> Status: **v0.3 complete.** The core API, conversion layer, callbacks,
+> userdata/object model, module builder, stub generator and the v0.2/v0.3 API
+> polish are implemented and compile with LDC 1.43 and DMD 2.111 against
 > Lua 5.1–5.5 API profiles. The full unittest suite passes against Lua 5.1–5.5
 > and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD), and CI also runs
 > macOS, AddressSanitizer and coverage-guided fuzzing jobs. References created
 > inside callbacks share the owner state core, and cross-state use is rejected.
 > The public API is not frozen yet.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Why another binding?
 
@@ -201,10 +203,10 @@ assumes a live state and valid handles.
 | Call a function | `LuaFunction.call` | — |
 
 `LuaState.setGlobal` is the checked write path; `setGlobalChecked` remains an
-alias for call sites written against v0.2. The handle `ref_` accessors are
-deprecated spellings; use `reference`. On `LuaRef`, `registryId` is the
-explicit name for the raw registry id; on handle types such as `LuaTable`,
-`reference` returns the underlying `LuaRef`.
+alias for call sites written against v0.2. v0.3 removed the deprecated handle
+`ref_` accessors; use `reference`. On `LuaRef`, `registryId` is the explicit
+name for the raw registry id; on handle types such as `LuaTable`, `reference`
+returns the underlying `LuaRef`.
 
 ## Error handling
 
@@ -821,11 +823,11 @@ has no registered codec reports no matching overload.
 2. **Tooling** (v0.2 complete): LuaLS editor setup, `tools/gen_stubs.d`,
    constructor and multi-line stub documentation, and the validated
    `.lua/stubs/` CI artifact are in place.
-3. **API polish** (v0.2 complete, v0.3 underway): the review landed the
-   checked/raw naming, name-aware arity errors, `lengthOf`, the status helpers
-   and the `reference`/`registryId` accessors. v0.3 gives `setGlobal` its
-   checked meaning, with `setGlobalChecked` kept as an alias, and removes the
-   remaining deprecated spellings; see [`API-REVIEW.md`](API-REVIEW.md).
+3. **API polish** (v0.2 and v0.3 complete): the review landed the checked/raw
+   naming, name-aware arity errors, `lengthOf`, the status helpers and the
+   `reference`/`registryId` accessors. v0.3 gave `setGlobal` its checked
+   meaning, with `setGlobalChecked` kept as an alias, and removed the
+   deprecated handle `ref_` spellings; see [`API-REVIEW.md`](API-REVIEW.md).
 
 ## License
 
