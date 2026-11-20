@@ -339,6 +339,36 @@ L.doString(`
 `);
 ```
 
+A `std.typecons.Tuple` return expands into a fixed number of Lua results. When
+the count is dynamic, return `LuaResults`; each entry becomes one Lua result:
+
+```d
+LuaResults countdown(int n)
+{
+    LuaValue[] values;
+    foreach (i; 0 .. n)
+        values ~= LuaValue.fromInteger(n - i);
+    return LuaResults(values);
+}
+
+toLua!countdown(L);
+L.doString("local a, b = countdown(2); assert(a == 2 and b == 1)");
+```
+
+`LuaResults.from(7, "x", true)` builds a mixed list directly from booleans,
+numbers, strings and `LuaValue`s. Combined with a heterogeneous variadic tail,
+it forwards arbitrary arguments without a raw callback:
+
+```d
+LuaResults echo(LuaValue[] values...)
+{
+    return LuaResults(values);
+}
+```
+
+The returned entries are the same `LuaValue`s, so table, function and userdata
+references remain valid when pushed back.
+
 C-style D `...` declarations still cannot be marshalled automatically because
 Lua values carry no C type information. For those, bind a raw `lua_CFunction`
 instead; it receives the Lua stack directly and returns the number of Lua
@@ -818,9 +848,10 @@ falling back to `opIndex`/`opIndexAssign`; D structs boxed as mutable userdata
 (`LuaStruct!S`) with field access, methods and operators; omitted trailing
 parameters filled from D default arguments; D typesafe variadics collected into
 an array; D enums converted through their base integer type (and optionally
-exported as `{ name = value }` tables); D `Tuple` results expanded into multiple
-Lua returns; `LuaState` parameters injected into callbacks; weak-key/weak-value
-tables (`LuaWeakness`); coroutine creation and resumption through `LuaThread`;
+exported as `{ name = value }` tables); D `Tuple` and `LuaResults` results
+expanded into multiple Lua returns; `LuaState` parameters injected into
+callbacks; weak-key/weak-value tables (`LuaWeakness`); coroutine creation and
+resumption through `LuaThread`;
 `__gc`; `__eq`; D → Lua and Lua → D identity; weak-value identity tables so
 repeated pushes reuse the same userdata; reference-counted GC roots across
 states and class views; selective standard-library loading through `LuaLib` /

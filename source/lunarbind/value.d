@@ -5,6 +5,9 @@ import lunarbind.raw;
 import lunarbind.state;
 import lunarbind.types;
 
+import std.conv : to;
+import std.traits : isFloatingPoint, isIntegral, isSomeString, Unqual;
+
 struct LuaValue
 {
     LuaType kind = LuaType.nil;
@@ -144,5 +147,47 @@ struct LuaValue
                 lua_pushlightuserdata(state.handle, userdataValue);
                 break;
         }
+    }
+}
+
+/// A dynamic number of Lua return values from a bound D function.
+///
+/// Returning `LuaResults` from a callback pushes every entry as a separate Lua
+/// result. Use it when the result count is not known at compile time;
+/// `std.typecons.Tuple` covers fixed-size multiple returns.
+struct LuaResults
+{
+    LuaValue[] values;
+
+    alias values this;
+
+    this(LuaValue[] values)
+    {
+        this.values = values;
+    }
+
+    /// Build a result list from values that `LuaValue` can represent directly.
+    static LuaResults from(T...)(T values)
+    {
+        LuaValue[] result;
+        result.reserve(T.length);
+        static foreach (i; 0 .. T.length)
+        {{
+            alias V = Unqual!(T[i]);
+            static if (is(V == LuaValue))
+                result ~= values[i];
+            else static if (is(V == bool))
+                result ~= LuaValue.fromBool(values[i]);
+            else static if (isSomeString!V)
+                result ~= LuaValue.fromString(values[i].to!string);
+            else static if (isIntegral!V)
+                result ~= LuaValue.fromInteger(values[i]);
+            else static if (isFloatingPoint!V)
+                result ~= LuaValue.fromNumber(values[i]);
+            else
+                static assert(0, "LuaResults.from: unsupported value type "
+                              ~ V.stringof);
+        }}
+        return LuaResults(result);
     }
 }

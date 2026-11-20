@@ -6,6 +6,7 @@ module lunarbind.dispatch;
 
 import lunarbind.state;
 import lunarbind.conv;
+import lunarbind.value : LuaResults;
 import lunarbind.raw : LUA_TNUMBER, isInteger, lua_State, lua_error,
                       lua_pushlstring, lua_type, lua_typename;
 
@@ -166,11 +167,17 @@ package template typesafeVariadicElement(alias F)
     alias typesafeVariadicElement = Unqual!(typeof(P.init[0]));
 }
 
-/// Push a D call result onto the Lua stack. A `std.typecons.Tuple` becomes
-/// multiple Lua return values; any other value becomes one.
+/// Push a D call result onto the Lua stack. A `std.typecons.Tuple` or
+/// `LuaResults` becomes multiple Lua return values; any other value becomes one.
 package int pushCallResult(R)(LuaState state, auto ref R value)
 {
-    static if (isInstanceOf!(Tuple, Unqual!R))
+    static if (is(Unqual!R == LuaResults))
+    {
+        foreach (result; value.values)
+            pushTo(state, result);
+        return cast(int) value.values.length;
+    }
+    else static if (isInstanceOf!(Tuple, Unqual!R))
     {
         static foreach (i; 0 .. Unqual!R.length)
             pushTo(state, value[i]);

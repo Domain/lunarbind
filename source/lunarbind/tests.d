@@ -789,6 +789,32 @@ string valueKinds(LuaValue[] values...)
     return result;
 }
 
+LuaResults countResults(int count)
+{
+    LuaValue[] values;
+    foreach (i; 0 .. count)
+        values ~= LuaValue.fromInteger(i + 1);
+    return LuaResults(values);
+}
+
+LuaResults mixedResults()
+{
+    return LuaResults.from(7, "x", true);
+}
+
+LuaResults echoResults(LuaValue[] values...)
+{
+    return LuaResults(values);
+}
+
+class DynamicResults
+{
+    LuaResults pair() const
+    {
+        return LuaResults.from(4, "y");
+    }
+}
+
 string freePick(int value) { return "int"; }
 string freePick(string value) { return "string:" ~ value; }
 private int hiddenFree() { return 1; }
@@ -1322,6 +1348,30 @@ unittest
         enum expectedKinds = "number,string,boolean,table,nil";
     assert(valueKindsResult[0].stringValue == expectedKinds);
 
+    // LuaResults returns a dynamic number of Lua values.
+    registerFunction!countResults(L, "count_results");
+    registerFunction!mixedResults(L, "mixed_results");
+    registerFunction!echoResults(L, "echo_results");
+    auto countedResults = L.eval("return count_results(3)");
+    assert(countedResults.length == 3);
+    foreach (i; 0 .. 3)
+        assert(asInt(countedResults[i]) == i + 1);
+    assert(L.eval("return count_results(0)").length == 0);
+    auto mixedValues = L.eval("return mixed_results()");
+    assert(mixedValues.length == 3);
+    assert(asInt(mixedValues[0]) == 7);
+    assert(mixedValues[1].stringValue == "x");
+    assert(mixedValues[2].kind == LuaType.boolean && mixedValues[2].booleanValue);
+
+    // A heterogeneous typesafe variadic tail can be returned unchanged, so
+    // arbitrary forwarding needs no raw lua_CFunction.
+    auto echoedValues = L.eval("return echo_results(1, 'x', true, {})");
+    assert(echoedValues.length == 4);
+    assert(asInt(echoedValues[0]) == 1);
+    assert(echoedValues[1].stringValue == "x");
+    assert(echoedValues[2].kind == LuaType.boolean && echoedValues[2].booleanValue);
+    assert(echoedValues[3].kind == LuaType.table);
+
     // Extra arguments beyond the declared fixed parameters are rejected.
     bool extraArgFailed;
     try
@@ -1460,6 +1510,14 @@ unittest
     ");
     assert(asInt(variadicResult[0]) == 9);
     assert(variadicResult[1].stringValue == "x");
+
+    // Methods can return a dynamic number of values through LuaResults.
+    auto dynamicResults = new DynamicResults;
+    LuaClass!DynamicResults.setGlobal(L, "dynamicResults", dynamicResults);
+    auto dynamicMethodResults = L.eval("return dynamicResults:pair()");
+    assert(dynamicMethodResults.length == 2);
+    assert(asInt(dynamicMethodResults[0]) == 4);
+    assert(dynamicMethodResults[1].stringValue == "y");
 
     // Methods can return tuples as well.
     auto splitter = new Splitter;
@@ -2530,6 +2588,14 @@ unittest
     assert(tupleStub.canFind("---@return integer"));
     assert(tupleStub.canFind("---@return string"));
     assert(tupleStub.canFind("function describe(value) end"));
+    auto resultsStub = luaStubs!mixedResults();
+    assert(resultsStub.canFind("---@return any"));
+    assert(!resultsStub.canFind("---@class LuaResults"));
+    assert(resultsStub.canFind("function mixedResults() end"));
+    auto echoStub = luaStubs!echoResults();
+    assert(echoStub.canFind("---@vararg any"));
+    assert(echoStub.canFind("---@return any"));
+    assert(echoStub.canFind("function echoResults(...) end"));
     auto variadicStub = luaStubs!stateSum();
     assert(variadicStub.canFind("---@param base? integer"));
     assert(variadicStub.canFind("---@vararg integer"));

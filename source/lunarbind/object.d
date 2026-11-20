@@ -20,8 +20,9 @@
 ///   mutating methods persist while Lua holds the box.
 /// - Omitted trailing arguments take their D default values; D typesafe
 ///   variadics collect the argument tail into an array; a `std.typecons.Tuple`
-///   result expands into multiple Lua return values; a `LuaState` parameter is
-///   injected by the wrapper and consumes no Lua argument.
+///   or `LuaResults` result expands into multiple Lua return values; a
+///   `LuaState` parameter is injected by the wrapper and consumes no Lua
+///   argument.
 /// - D `...` declarations cannot be marshalled automatically because Lua
 ///   values carry no C type information. Free functions with the raw
 ///   `extern(C) int f(lua_State*)` signature are bound directly and can read
@@ -81,29 +82,32 @@ private template isPublicOverload(alias F)
 private template isBindableType(T)
 {
     enum isBindableType =
-        is(T == bool)
-        || (is(T == enum) && isBindableType!(OriginalType!T))
-        || isIntegral!T
-        || isFloatingPoint!T
-        || isSomeString!T
-        || is(T : const(char)[])
-        || is(T == LuaValue)
-        || is(T == LuaRef)
-        || is(T == LuaTable)
-        || is(T == LuaFunction)
-        || is(T == LuaString)
-        || is(T == void*)
-        || is(T == class)
-        || isDynamicArray!T
-        || isAssociativeArray!T
-        || isInstanceOf!(Nullable, T)
-        || is(Unqual!T == struct)
-        || is(Unqual!T == union);
+        !is(Unqual!T == LuaResults)
+        && (is(T == bool)
+            || (is(T == enum) && isBindableType!(OriginalType!T))
+            || isIntegral!T
+            || isFloatingPoint!T
+            || isSomeString!T
+            || is(T : const(char)[])
+            || is(T == LuaValue)
+            || is(T == LuaRef)
+            || is(T == LuaTable)
+            || is(T == LuaFunction)
+            || is(T == LuaString)
+            || is(T == void*)
+            || is(T == class)
+            || isDynamicArray!T
+            || isAssociativeArray!T
+            || isInstanceOf!(Nullable, T)
+            || is(Unqual!T == struct)
+            || is(Unqual!T == union));
 }
 
 private template isBindableReturn(T)
 {
     static if (is(T == void))
+        enum isBindableReturn = true;
+    else static if (is(Unqual!T == LuaResults))
         enum isBindableReturn = true;
     else
         enum isBindableReturn = isBindableType!T;

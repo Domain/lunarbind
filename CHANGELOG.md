@@ -4,6 +4,14 @@ All notable changes to lunarbind are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 semantic versioning while the public API is pre-1.0.
 
+## [Unreleased]
+
+### Added
+
+- `LuaResults` return values expand a runtime-sized list of `LuaValue`s into
+  multiple Lua results, complementing fixed-size `Tuple` returns. Class and
+  struct methods, module functions and runtime delegates share the same path.
+
 ## [0.3.0] - 2026-11-20
 
 This is the first tagged release. It covers the initial binding core plus the

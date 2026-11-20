@@ -32,7 +32,7 @@ import lunarbind.object : LuaClass, LuaStruct, callableBindable, fieldBindable,
                          propertySetter, staticMethodBindable;
 import lunarbind.state : LuaRef, LuaState;
 import lunarbind.table : LuaTable;
-import lunarbind.value : LuaValue;
+import lunarbind.value : LuaResults, LuaValue;
 
 import std.algorithm : canFind;
 import std.array : Appender, join;
@@ -59,6 +59,8 @@ package string luaStubType(T)()
     else static if (is(U == bool))
         return "boolean";
     else static if (is(U == LuaValue))
+        return "any";
+    else static if (is(U == LuaResults))
         return "any";
     else static if (is(U == LuaRef))
         return "any";
@@ -155,6 +157,7 @@ private template isDiscoverableType(T)
     else static if (is(U == struct))
         enum isDiscoverableType =
             !is(U == LuaValue)
+            && !is(U == LuaResults)
             && !is(U == LuaRef)
             && !is(U == LuaTable)
             && !is(U == LuaFunction)
