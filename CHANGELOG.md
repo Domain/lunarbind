@@ -11,6 +11,8 @@ semantic versioning while the public API is pre-1.0.
 - `LuaResults` return values expand a runtime-sized list of `LuaValue`s into
   multiple Lua results, complementing fixed-size `Tuple` returns. Class and
   struct methods, module functions and runtime delegates share the same path.
+- `LuaFunction.callWith` calls a Lua function with a runtime-sized
+  `LuaValue[]` argument list, pushing each entry as a separate argument.
 
 ## [0.3.0] - 2026-11-20
 

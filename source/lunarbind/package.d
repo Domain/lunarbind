@@ -4,7 +4,8 @@
 ///   - `LuaState` shared state handle, selective `LuaLib` loading, GC controls
 ///     and stack primitives
 ///   - `@nogc` primitive push/stack/table paths and `LuaValue.pushUnchecked`
-///   - `LuaTable` / `LuaFunction` typed handles
+///   - `LuaTable` / `LuaFunction` typed handles; `LuaFunction.callWith` for
+///     runtime-sized `LuaValue[]` argument lists
 ///   - `LuaThread` coroutine create/adopt/resume/resumeFrom/status handle
 ///   - `LuaValue` dynamic value
 ///   - `pushTo` / `popFrom` conversion functions

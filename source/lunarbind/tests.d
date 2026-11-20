@@ -1165,6 +1165,26 @@ unittest
     auto mul = L.getGlobal!LuaFunction("mul");
     assert(mul.call!int(6, 7) == 42);
 
+    // callWith pushes a runtime-sized LuaValue[] as separate Lua arguments; the
+    // array itself is not pushed as one table.
+    auto varargs = L.loadString("return function(...) return ... end")
+        .call!LuaFunction();
+    auto echoedArgs = varargs.callWith!(LuaValue[])([
+        LuaValue.fromInteger(1),
+        LuaValue.fromString("x"),
+        LuaValue.fromBool(true),
+    ]);
+    assert(echoedArgs.length == 3);
+    assert(asInt(echoedArgs[0]) == 1);
+    assert(echoedArgs[1].stringValue == "x");
+    assert(echoedArgs[2].kind == LuaType.boolean && echoedArgs[2].booleanValue);
+    assert(mul.callWith!int([LuaValue.fromInteger(6), LuaValue.fromInteger(7)])
+           == 42);
+
+    LuaValue[] noArgs;
+    assert(L.loadString("return function() return 99 end")
+        .call!LuaFunction().callWith!int(noArgs) == 99);
+
     auto bound = mul.bind!(int, int, int)();
     assert(bound(2, 3) == 6);
 

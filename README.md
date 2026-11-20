@@ -152,6 +152,20 @@ unreadable file raises `LuaException` with `LuaStatus.errFile`; syntax errors
 use `LuaStatus.errSyntax`. `LuaStatus.toString` gives a version-independent
 name, and `luaStatusFromInt` maps a raw C API status code back to the enum.
 
+`LuaFunction.call!T(args...)` calls a function with a fixed argument list.
+When the arguments are built at runtime, use `callWith!T(LuaValue[])`; each
+array entry becomes one Lua argument instead of the array being pushed as a
+table:
+
+```d
+auto f = L.getGlobal!LuaFunction("f");
+auto args = [LuaValue.fromInteger(1), LuaValue.fromString("x")];
+auto results = f.callWith!(LuaValue[])(args);
+```
+
+`callMulti(args...)` collects all results as `LuaValue[]`; `call!(Tuple!(...))`
+collects a fixed set of typed results.
+
 ## Allocation-free fast paths
 
 Primitive stack, table and state operations are `@nogc`, so they can be used

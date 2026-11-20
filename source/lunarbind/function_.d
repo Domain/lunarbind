@@ -20,6 +20,64 @@ import std.typecons : Tuple;
 // LuaFunction
 // ---------------------------------------------------------------------------
 
+// Shared result handling for `LuaFunction.call` and `callWith`.
+private template callResultCount(T)
+{
+    static if (is(T == void))
+        enum int callResultCount = 0;
+    else static if (is(T == LuaValue[]))
+        enum int callResultCount = LUA_MULTRET;
+    else static if (isInstanceOf!(Tuple, Unqual!T))
+        enum int callResultCount = cast(int) Unqual!T.length;
+    else
+        enum int callResultCount = 1;
+}
+
+private T collectCallResult(T)(LuaState s, int first)
+{
+    static if (is(T == void))
+        return;
+    else static if (is(T == LuaValue[]))
+    {
+        LuaValue[] result;
+        foreach (i; first .. s.top() + 1)
+            result ~= LuaValue.fromStack(s, i);
+        return result;
+    }
+    else static if (isInstanceOf!(Tuple, Unqual!T))
+    {
+        alias R = Unqual!T;
+        R result;
+        static foreach (i, E; R.Types)
+            result.expand[i] = popFrom!(Unqual!E)(s, first + cast(int) i);
+        return result;
+    }
+    else
+    {
+        return popFrom!T(s, -1);
+    }
+}
+
+private T protectedCall(T)(LuaState s, int base, int nargs)
+{
+    auto status = raw.pcall(s.handle, nargs, callResultCount!T, base + 1);
+    remove(s.handle, base + 1);
+
+    if (status != LUA_OK)
+    {
+        auto msg = s.errorText(-1);
+        throw new LuaException(msg, cast(LuaStatus) status, msg);
+    }
+
+    static if (is(T == void))
+    {
+        collectCallResult!T(s, base + 1);
+        return;
+    }
+    else
+        return collectCallResult!T(s, base + 1);
+}
+
 struct LuaFunction
 {
     private LuaRef _ref;
@@ -50,47 +108,26 @@ struct LuaFunction
         static foreach (arg; args)
             pushTo(s, arg);
 
-        static if (is(T == void))
-            enum int nresults = 0;
-        else static if (is(T == LuaValue[]))
-            enum int nresults = LUA_MULTRET;
-        else static if (isInstanceOf!(Tuple, Unqual!T))
-            enum int nresults = cast(int) Unqual!T.length;
-        else
-            enum int nresults = 1;
+        return protectedCall!T(s, base, cast(int) args.length);
+    }
 
-        auto status = raw.pcall(s.handle, cast(int) args.length, nresults, base + 1);
-        remove(s.handle, base + 1);
+    /// Call the function with a runtime-sized `LuaValue[]` argument list.
+    ///
+    /// Unlike `call`, the array is not pushed as one Lua table: each entry
+    /// becomes a separate Lua argument. `T` follows the same rules as `call`.
+    T callWith(T = LuaValue)(LuaValue[] args)
+    {
+        auto s = state();
+        s.ensureOpen();
+        StackGuard guard = StackGuard(s);
 
-        if (status != LUA_OK)
-        {
-            auto msg = s.errorText(-1);
-            throw new LuaException(msg, cast(LuaStatus) status, msg);
-        }
+        const base = s.top();
+        pushCFunction(s.handle, &luaMessageHandler); // errfunc at base + 1
+        push();                                     // function at base + 2
+        foreach (arg; args)
+            pushTo(s, arg);
 
-        static if (is(T == void))
-        {
-            return;
-        }
-        else static if (is(T == LuaValue[]))
-        {
-            LuaValue[] result;
-            foreach (i; base + 1 .. s.top() + 1)
-                result ~= LuaValue.fromStack(s, i);
-            return result;
-        }
-        else static if (isInstanceOf!(Tuple, Unqual!T))
-        {
-            alias R = Unqual!T;
-            R result;
-            static foreach (i, E; R.Types)
-                result.expand[i] = popFrom!(Unqual!E)(s, base + 1 + cast(int) i);
-            return result;
-        }
-        else
-        {
-            return popFrom!T(s, -1);
-        }
+        return protectedCall!T(s, base, cast(int) args.length);
     }
 
     LuaValue[] callMulti(Args...)(Args args)
