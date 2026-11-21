@@ -1032,7 +1032,7 @@ unittest
     auto values = L.eval("return { 1, 2, 3 }");
     assert(values.length == 1);
     auto tableValue = values[0];
-    auto table = tableValue.ref_.asTable();
+    auto table = tableValue.reference.asTable();
     assert(table.length() == 3);
     assert(table.lengthOf() == 3);
     assert(table.get!int(2) == 2);
@@ -1042,14 +1042,14 @@ unittest
         // `lengthOf` honors `__len`; `length` stays the raw fast path.
         auto customLength = L.eval(
             "return setmetatable({}, { __len = function() return 7 end })"
-        )[0].ref_.asTable();
+        )[0].reference.asTable();
         assert(customLength.length() == 0);
         assert(customLength.lengthOf() == 7);
 
         auto raisingLength = L.eval(
             "return setmetatable({}, " ~
             "{ __len = function() error('len boom') end })"
-        )[0].ref_.asTable();
+        )[0].reference.asTable();
         bool sawLenError;
         try
             raisingLength.lengthOf();
@@ -1059,7 +1059,7 @@ unittest
 
         auto badLength = L.eval(
             "return setmetatable({}, { __len = function() return 'x' end })"
-        )[0].ref_.asTable();
+        )[0].reference.asTable();
         bool sawBadLength;
         try
             badLength.lengthOf();
@@ -1225,7 +1225,7 @@ unittest
             local b, c = coroutine.yield(a + 1, a + 2)
             return b * c
         end
-    ")[0].ref_.asFunction();
+    ")[0].reference.asFunction();
     auto thread = LuaThread.create(threadFunction);
     auto firstYield = thread.resume(10);
     assert(firstYield.length == 2);
@@ -1316,7 +1316,7 @@ unittest
     input.set("x", 7);
     auto yieldedTable = tableThread.resume(input);
     assert(yieldedTable.length == 1);
-    auto yielded = yieldedTable[0].ref_.asTable();
+    auto yielded = yieldedTable[0].reference.asTable();
     assert(yielded.get!int("answer") == 8);
     auto finishedTable = tableThread.resume();
     assert(finishedTable.length == 1);

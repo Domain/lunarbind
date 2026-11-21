@@ -48,10 +48,10 @@ struct LuaThread
     /// `coroutine.create` or `coroutine.running`).
     static LuaThread fromValue(LuaValue value)
     {
-        if (value.kind != LuaType.thread || value.ref_.isNull())
+        if (value.kind != LuaType.thread || value.reference.isNull())
             throw new LuaTypeException("expected a Lua coroutine thread");
 
-        auto s = value.ref_.state();
+        auto s = value.reference.state();
         if (!s.isOpen())
             throw new LuaStateException(
                 "cannot adopt a coroutine from a closed Lua state");
@@ -60,7 +60,7 @@ struct LuaThread
         auto thread = lua_tothread(s.handle, -1);
         if (thread is null)
             throw new LuaTypeException("expected a Lua coroutine thread");
-        return LuaThread(value.ref_, thread);
+        return LuaThread(value.reference, thread);
     }
 
     LuaState state() { return _ref.state(); }

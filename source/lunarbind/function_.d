@@ -142,7 +142,7 @@ struct LuaFunction
     }
 }
 
-final class LuaBoundFunction(Ret, Args...)
+private final class LuaBoundFunction(Ret, Args...)
 {
     private LuaFunction _function;
 
@@ -271,7 +271,7 @@ private string upvalueString(lua_State* L, int index) nothrow @nogc
 }
 
 /// Wrap a compile-time D function/lambda as a Lua C function.
-extern(C) int luaCFunctionWrapper(alias Func)(lua_State* L) nothrow
+private extern(C) int luaCFunctionWrapper(alias Func)(lua_State* L) nothrow
 {
     try
     {

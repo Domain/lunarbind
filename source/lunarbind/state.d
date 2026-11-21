@@ -17,7 +17,7 @@ private __gshared ubyte stateCoreKey;
 // State core: owns the lua_State* and is shared by LuaState/LuaRef.
 // ---------------------------------------------------------------------------
 
-final class StateCore
+package final class StateCore
 {
     lua_State* L;
     bool ownsClose;
@@ -342,6 +342,8 @@ struct LuaState
         return _core !is null && !_core.closed && _handle !is null;
     }
 
+    /// Number of live handles, references and coroutine handles that share
+    /// this state. Useful for lifetime and leak diagnostics.
     size_t referenceCount() const @nogc nothrow
     {
         return _core is null ? 0 : _core.refs;

@@ -17,13 +17,16 @@ struct LuaValue
     string stringValue;
     void* userdataValue;
     lua_State* threadValue;
-    LuaRef ref_; // table / function / full userdata / thread
+    private LuaRef _ref; // table / function / full userdata / thread
+
+    /// Registry reference for table, function, full userdata and thread values.
+    @property LuaRef reference() @nogc nothrow { return _ref; }
 
     this(lua_Integer v) { kind = LuaType.integer; integerValue = v; }
     this(lua_Number v) { kind = LuaType.number; numberValue = v; }
     this(bool v) { kind = LuaType.boolean; booleanValue = v; }
     this(string v) { kind = LuaType.string; stringValue = v; }
-    this(LuaType kind, LuaRef ref__) { this.kind = kind; this.ref_ = ref__; }
+    this(LuaType kind, LuaRef r) { this.kind = kind; this._ref = r; }
 
     static LuaValue nil() { return LuaValue(); }
     static LuaValue fromBool(bool v) { return LuaValue(v); }
@@ -100,7 +103,7 @@ struct LuaValue
             case LuaType.function_:
             case LuaType.thread:
             case LuaType.userdata:
-                if (!ref_.isNull() && !ref_.belongsTo(state))
+                if (!_ref.isNull() && !_ref.belongsTo(state))
                     throw new LuaStateException("LuaValue belongs to a different Lua state");
                 break;
             default:
@@ -138,10 +141,10 @@ struct LuaValue
             case LuaType.function_:
             case LuaType.thread:
             case LuaType.userdata:
-                if (ref_.isNull())
+                if (_ref.isNull())
                     lua_pushnil(state.handle);
                 else
-                    lua_rawgeti(state.handle, LUA_REGISTRYINDEX, ref_.reference);
+                    lua_rawgeti(state.handle, LUA_REGISTRYINDEX, _ref.reference);
                 break;
             case LuaType.lightUserdata:
                 lua_pushlightuserdata(state.handle, userdataValue);
