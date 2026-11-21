@@ -98,18 +98,32 @@ private int fuzzOneInput(in ubyte[] data)
     auto L = LuaState.open();
     scope(exit)
     {
-        // `L.eval` and `LuaThread.resume` return GC-managed LuaValue arrays.
-        // Their elements can hold LuaRefs, so collect them before the close
-        // check; a reference that survives this is a real leak.
+        // `L.eval`, `L.doString` and `LuaFunction.call` return GC-managed
+        // values. A value that wraps a table, function or thread owns a
+        // registry reference that is released only when the collector reclaims
+        // it, and an inert stack slot can keep the last one alive past a
+        // collection. The reference count is therefore not a reliable leak
+        // signal here: collect first, and when a value is still alive let the
+        // state's own destructor close it once that last reference is gone.
+        import core.memory : GC;
         if (L.referenceCount() > 1)
         {
-            import core.memory : GC;
             GC.collect();
             GC.collect();
         }
-        L.close();
+        if (L.referenceCount() == 1)
+            L.close();
     }
 
+    runOperations(L, reader);
+    return 0;
+}
+
+/// Drive one input through the binding. Every handle-owning local lives here so
+/// that its destructor releases its registry reference when this function
+/// returns, before the caller closes the state.
+private void runOperations(LuaState L, ref Reader reader)
+{
     LuaClass!FuzzBox.registerClass(L, "FuzzBox");
     auto box = new FuzzBox(reader.range(-1000, 1000));
     LuaClass!FuzzBox.setGlobal(L, "fuzz_box", box);
@@ -352,6 +366,4 @@ private int fuzzOneInput(in ubyte[] data)
 
         assert(L.top() == 0, "operation left the Lua stack unbalanced");
     }
-
-    return 0;
 }
