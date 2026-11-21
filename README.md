@@ -2,14 +2,15 @@
 
 **A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.5.
 
-> Status: **v0.3 complete.** The core API, conversion layer, callbacks,
-> userdata/object model, module builder, stub generator and the v0.2/v0.3 API
-> polish are implemented and compile with LDC 1.43 and DMD 2.111 against
-> Lua 5.1–5.5 API profiles. The full unittest suite passes against Lua 5.1–5.5
-> and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD), and CI also runs
-> macOS, AddressSanitizer and coverage-guided fuzzing jobs. References created
-> inside callbacks share the owner state core, and cross-state use is rejected.
-> The public API is not frozen yet.
+> Status: **v0.3 complete; public API frozen for 1.0.0.** The core API,
+> conversion layer, callbacks, userdata/object model, module builder, stub
+> generator and the v0.2/v0.3 API polish are implemented and compile with LDC
+> 1.43 and DMD 2.111 against Lua 5.1–5.5 API profiles. The full unittest suite
+> passes against Lua 5.1–5.5 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and
+> DMD), and CI also runs macOS, AddressSanitizer and coverage-guided fuzzing
+> jobs. References created inside callbacks share the owner state core, and
+> cross-state use is rejected. See [STABILITY.md](STABILITY.md) for the frozen
+> API and compatibility policy.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
@@ -41,7 +42,7 @@ credited in [LICENSE](LICENSE).
 source/lunarbind/
   raw.d          version-aware Lua C API declarations + compat helpers
   types.d        LuaStatus, LuaType, exceptions
-  state.d        StateCore, LuaState, StackGuard, LuaRef, traceback/error helpers
+  state.d        LuaState, StackGuard, LuaRef, error helpers (state core is internal)
   value.d        LuaValue (dynamic value for untyped edges)
   conv.d         pushTo!T / popFrom!T (primitives, strings, arrays, AAs, Nullable, LuaRef)
   table.d        LuaTable (registry-backed; get/set/opIndex/foreach, weak tables)
@@ -183,7 +184,7 @@ from real-time or `@nogc` code:
   throw; `LuaTable.lengthOf` is the checked length that honors `__len` on
   Lua 5.2+ and throws on a raising or non-integer metamethod)
 - `LuaRef.push` / `reference` / `registryId` / `isNull`, `LuaFunction.push`,
-  `LuaTable.state`
+  `LuaTable.state`, `LuaValue.reference`
 - `LuaValue.pushUnchecked`, the allocation-free counterpart of `push`
 - copying a `LuaState` handle, `mainState` and `sharesState`
 
@@ -218,9 +219,19 @@ assumes a live state and valid handles.
 
 `LuaState.setGlobal` is the checked write path; `setGlobalChecked` remains an
 alias for call sites written against v0.2. v0.3 removed the deprecated handle
-`ref_` accessors; use `reference`. On `LuaRef`, `registryId` is the explicit
-name for the raw registry id; on handle types such as `LuaTable`, `reference`
-returns the underlying `LuaRef`.
+`ref_` accessors; use `reference`. `LuaValue` likewise exposes `reference`
+instead of the former public `ref_` field. On `LuaRef`, `registryId` is the
+explicit name for the raw registry id; on handle types such as `LuaTable`,
+`reference` returns the underlying `LuaRef`.
+
+## API stability
+
+The public API is frozen for 1.0.0. `lunarbind` follows semantic versioning
+from that release: minor versions add or deprecate API, major versions may
+remove it, and patches contain fixes only. [STABILITY.md](STABILITY.md) lists
+the stable modules, explains the status of the public `raw` layer and the
+`@nogc` guarantees, and names the intentionally internal modules and test
+fixtures.
 
 ## Error handling
 
@@ -293,7 +304,7 @@ toLua!Color(L);                   // Color = { red = 0, green = 1, ... }
 
 auto fn = toLua!add(L);           // LuaFunction
 auto cls = toLua!Player(L);       // LuaTable
-auto ref_ = toLua!player(L);      // LuaRef
+auto playerRef = toLua!player(L);  // LuaRef
 
 // Runtime expressions have no identifier, so the name is required:
 toLua(L, 42, "answer");
@@ -893,11 +904,14 @@ has no registered codec reports no matching overload.
 2. **Tooling** (v0.2 complete): LuaLS editor setup, `tools/gen_stubs.d`,
    constructor and multi-line stub documentation, and the validated
    `.lua/stubs/` CI artifact are in place.
-3. **API polish** (v0.2 and v0.3 complete): the review landed the checked/raw
-   naming, name-aware arity errors, `lengthOf`, the status helpers and the
-   `reference`/`registryId` accessors. v0.3 gave `setGlobal` its checked
-   meaning, with `setGlobalChecked` kept as an alias, and removed the
-   deprecated handle `ref_` spellings; see [`API-REVIEW.md`](API-REVIEW.md).
+3. **API polish and freeze** (v0.2, v0.3 and the 1.0 freeze complete): the
+   review landed the checked/raw naming, name-aware arity errors, `lengthOf`,
+   the status helpers and the `reference`/`registryId` accessors. v0.3 gave
+   `setGlobal` its checked meaning, with `setGlobalChecked` kept as an alias,
+   and removed the deprecated handle `ref_` spellings; see
+   [`API-REVIEW.md`](API-REVIEW.md). The public surface is now frozen;
+   [`STABILITY.md`](STABILITY.md) defines the semver guarantees and the
+   explicitly non-API internals.
 
 ## License
 

@@ -2,7 +2,8 @@
 
 All notable changes to lunarbind are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
-semantic versioning while the public API is pre-1.0.
+semantic versioning from 1.0.0. The frozen public surface is documented in
+[STABILITY.md](STABILITY.md).
 
 ## [Unreleased]
 
@@ -13,6 +14,17 @@ semantic versioning while the public API is pre-1.0.
   struct methods, module functions and runtime delegates share the same path.
 - `LuaFunction.callWith` calls a Lua function with a runtime-sized
   `LuaValue[]` argument list, pushing each entry as a separate argument.
+
+### Changed
+
+- The public API is frozen for 1.0.0. `STABILITY.md` defines the semver
+  policy, the stable modules, the status of the public `raw` layer, and the
+  explicitly non-API internals and test fixtures.
+- `LuaValue` no longer exposes its registry handle as the public `ref_` field;
+  use the `reference` property.
+- `StateCore` and `LuaBoundFunction` are package/private implementation
+  details, and `luaCFunctionWrapper` is private. None of them is part of the
+  public API.
 
 ## [0.3.0] - 2026-11-20
 
