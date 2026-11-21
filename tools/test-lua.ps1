@@ -264,7 +264,7 @@ function Invoke-ProfileBench {
     $entry = Join-Path $Root "bench\bench.d"
 
     $versionFlag = if ($Compiler -match "dmd") { "-version=" } else { "-d-version=" }
-    $args = @("-i", "-I$source", "-O")
+    $args = @("-i", "-I$source", "-O", "-m64")
     foreach ($version in Get-ProfileVersions $Profile) {
         $args += "$versionFlag$version"
     }
@@ -323,7 +323,9 @@ function Invoke-Samples {
     $source = Join-Path $Root "source"
 
     $versionFlag = if ($Compiler -match "dmd") { "-version=" } else { "-d-version=" }
-    $compileArgs = @("-i", "-I$source", "-I$Root", "-O")
+    # DMD targets x86 by default on Windows; the Lua import libraries are all
+    # 64-bit, so every direct compiler invocation has to ask for -m64.
+    $compileArgs = @("-i", "-I$source", "-I$Root", "-O", "-m64")
     foreach ($version in Get-ProfileVersions $Profile) {
         $compileArgs += "$versionFlag$version"
     }
@@ -386,9 +388,20 @@ function Invoke-ProfileTest {
     $runtime = Join-Path $RuntimeRoot $Profile
     $oldPath = $env:PATH
     $oldLib = $env:LIB
+    $oldDflags = $env:DFLAGS
     try {
         $env:PATH = "$runtime;$oldPath"
         $env:LIB = "$runtime;$oldLib"
+
+        # LDC forwards LIB to the linker, but DMD ships an sc.ini that rewrites
+        # LIB with its own runtime directories, so a bare `lua54.lib` on the
+        # link line is never found and `dub test` dies with LNK1104. Give DMD
+        # the runtime directory as an explicit linker search path instead.
+        if ($Compiler -match "dmd") {
+            $searchPath = '-L/LIBPATH:"' + $runtime + '"'
+            $env:DFLAGS = if ($oldDflags) { "$searchPath $oldDflags" } else { $searchPath }
+        }
+
         & $Dub test --root=$Root --config=$Profile --compiler=$Compiler
         if ($LASTEXITCODE -ne 0) {
             throw "tests failed for $Profile"
@@ -401,6 +414,7 @@ function Invoke-ProfileTest {
     finally {
         $env:PATH = $oldPath
         $env:LIB = $oldLib
+        $env:DFLAGS = $oldDflags
     }
 }
 
