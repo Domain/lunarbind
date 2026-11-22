@@ -1,10 +1,10 @@
 # API stability
 
-**Status: the public API is frozen for 1.0.0.**
+**Status: the public API is frozen as of 1.0.0.**
 
 `lunarbind` follows [Semantic Versioning 2.0.0](https://semver.org/). The
-public surface described here is the surface that 1.0.0 will ship. Once 1.0.0
-is tagged, a source-breaking change requires a new major version.
+public surface described here shipped with 1.0.0. A source-breaking change after
+1.0.0 requires a new major version.
 
 ## Public modules
 

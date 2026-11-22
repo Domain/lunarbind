@@ -5,7 +5,12 @@ All notable changes to lunarbind are documented here. The format follows
 semantic versioning from 1.0.0. The frozen public surface is documented in
 [STABILITY.md](STABILITY.md).
 
-## [Unreleased]
+## [1.0.0] - 2026-11-22
+
+This is the first stable release. The public API is now frozen; future
+source-breaking changes require a new major version. It builds on 0.3.0 with
+the additions and cleanups below. See [STABILITY.md](STABILITY.md) for the
+compatibility policy.
 
 ### Added
 
@@ -17,7 +22,7 @@ semantic versioning from 1.0.0. The frozen public surface is documented in
 
 ### Changed
 
-- The public API is frozen for 1.0.0. `STABILITY.md` defines the semver
+- The public API is frozen as of 1.0.0. `STABILITY.md` defines the semver
   policy, the stable modules, the status of the public `raw` layer, and the
   explicitly non-API internals and test fixtures.
 - `LuaValue` no longer exposes its registry handle as the public `ref_` field;

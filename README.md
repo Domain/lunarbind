@@ -2,15 +2,15 @@
 
 **A transparent, layered D ↔ Lua binding.** Supports LuaJIT and Lua 5.1–5.5.
 
-> Status: **v0.3 complete; public API frozen for 1.0.0.** The core API,
-> conversion layer, callbacks, userdata/object model, module builder, stub
-> generator and the v0.2/v0.3 API polish are implemented and compile with LDC
-> 1.43 and DMD 2.111 against Lua 5.1–5.5 API profiles. The full unittest suite
-> passes against Lua 5.1–5.5 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and
-> DMD), and CI also runs macOS, AddressSanitizer and coverage-guided fuzzing
-> jobs. References created inside callbacks share the owner state core, and
-> cross-state use is rejected. See [STABILITY.md](STABILITY.md) for the frozen
-> API and compatibility policy.
+> Status: **v1.0.0 — public API frozen.** The core API, conversion layer,
+> callbacks, userdata/object model, module builder, stub generator and the
+> v0.2/v0.3 API polish are implemented and compile with LDC 1.43 and DMD 2.111
+> against Lua 5.1–5.5 API profiles. The full unittest suite passes against
+> Lua 5.1–5.5 and LuaJIT 2.1 on Windows (LDC) and Linux (LDC and DMD), and CI
+> also runs macOS, AddressSanitizer and coverage-guided fuzzing jobs. References
+> created inside callbacks share the owner state core, and cross-state use is
+> rejected. See [STABILITY.md](STABILITY.md) for the frozen API and
+> compatibility policy.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
@@ -226,7 +226,7 @@ explicit name for the raw registry id; on handle types such as `LuaTable`,
 
 ## API stability
 
-The public API is frozen for 1.0.0. `lunarbind` follows semantic versioning
+The public API is frozen as of 1.0.0. `lunarbind` follows semantic versioning
 from that release: minor versions add or deprecate API, major versions may
 remove it, and patches contain fixes only. [STABILITY.md](STABILITY.md) lists
 the stable modules, explains the status of the public `raw` layer and the
